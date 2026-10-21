@@ -214,7 +214,7 @@ def export_pages(
                     if tab_texture:
                         page["clip"].append(poly)
                     page["cut"].append(
-                        f'<path d="M {pt(tp[0])} L {pt(tp[1])} L {pt(tp[2])} L {pt(tp[3])}"/>'
+                        f'<path d="M {pt(tp[0])} ' + " ".join(f"L {pt(p)}" for p in tp[1:]) + '"/>'
                     )
                     page["mountain"].append(line(a, b))  # tab folds behind
                     if numbered and numbers == "CLEAN":

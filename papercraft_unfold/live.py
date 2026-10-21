@@ -64,9 +64,13 @@ def regenerate(scene, depsgraph, obj, force=False):
         entry.src.colors = src.colors
         return entry
 
+    priority = props.priority
+    if priority == "auto" and not force and entry is not None and entry.settings == settings:
+        # Live edits: keep the order Auto chose last time (half the work).
+        priority = getattr(entry.res, "priority", None) or "auto"
     res = unfold(
         src.verts, src.polys, src.seams, src.materials,
-        priority=props.priority, max_faces=props.max_faces, joins=src.joins,
+        priority=priority, max_faces=props.max_faces, joins=src.joins,
         valley_bias=props.valley_bias,
     )
     page_w, page_h = props.page_size()

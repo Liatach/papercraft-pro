@@ -127,6 +127,8 @@ class UnfoldResult:
         self.islands = []
         self.warnings = []
         self.glue_count = 0
+        self.priority = None  # which order was used ('long' / 'flat')
+        self.score = 0.0
 
     def island_outline_points(self, island):
         pts = []
@@ -191,8 +193,87 @@ def _triangulate(points):
 
 
 def unfold(
-    verts, polygons, seams=(), materials=None, priority="flat", max_faces=0,
-    planar_tolerance=0.002, joins=(), valley_bias=0.5,
+    verts, polygons, seams=(), materials=None, priority="auto", max_faces=0,
+    planar_tolerance=0.002, joins=(), valley_bias=0.5, rescue_passes=5, tiny=3,
+):
+    """Unfold with small-piece rescue.
+
+    Greedy joining decides edges in priority order, so a face whose edges
+    come late often finds its neighbours already grown and in the way, and
+    ends up as a tiny separate piece. Each extra pass tries the edges of
+    such faces first; the result with the fewest pieces wins.
+
+    See _unfold_once for the other arguments. rescue_passes=0 disables it.
+    """
+    if priority == "auto":
+        # Try both orders and keep the better result: fewest pieces, but
+        # penalise "comb" pieces whose seams lie tight against each other
+        # on the page (hard to cut and assemble).
+        best = None
+        for p in ("long", "flat"):
+            res = unfold(
+                verts, polygons, seams, materials, p, max_faces, planar_tolerance,
+                joins, valley_bias, rescue_passes, tiny,
+            )
+            res.score = len(res.islands) + 0.2 * tight_seams(res)
+            res.priority = p
+            if best is None or res.score < best.score:
+                best = res
+        return best
+
+    user_joins = {edge_key(a, b) for a, b in joins}
+    boost = set()
+    best = None
+    for _ in range(max(0, rescue_passes) + 1):
+        res = _unfold_once(
+            verts, polygons, seams, materials, priority, max_faces,
+            planar_tolerance, user_joins, valley_bias, boost,
+        )
+        if best is None or len(res.islands) < len(best.islands):
+            best = res
+        stranded = set()
+        for isl in res.islands:
+            if len(isl.faces) <= tiny:
+                for f in isl.faces:
+                    face = res.faces[f]
+                    n = len(face.loop)
+                    for k in range(n):
+                        stranded.add(edge_key(face.loop[k], face.loop[(k + 1) % n]))
+        if stranded <= boost:
+            break
+        boost |= stranded
+    best.priority = priority
+    return best
+
+
+def tight_seams(res):
+    """Glue edges whose two sides sit right next to each other within one
+    piece (the teeth of a comb-shaped piece)."""
+    where = {}
+    for isl in res.islands:
+        for f, pts in isl.faces.items():
+            where[f] = (isl.index, pts)
+    count = 0
+    for e in res.edges.values():
+        if e.kind != KIND_CUT or len(e.uses) != 2:
+            continue
+        (fa, ka), (fb, kb) = e.uses
+        ia, pa = where.get(fa, (None, None))
+        ib, pb = where.get(fb, (None, None))
+        if ia is None or ia != ib:
+            continue
+        a0, a1 = pa[ka], pa[(ka + 1) % len(pa)]
+        b0, b1 = pb[kb], pb[(kb + 1) % len(pb)]
+        mid_a = ((a0[0] + a1[0]) / 2, (a0[1] + a1[1]) / 2)
+        mid_b = ((b0[0] + b1[0]) / 2, (b0[1] + b1[1]) / 2)
+        if g.len2(g.sub2(mid_a, mid_b)) < 1.5 * g.len2(g.sub2(a1, a0)):
+            count += 1
+    return count
+
+
+def _unfold_once(
+    verts, polygons, seams=(), materials=None, priority="long", max_faces=0,
+    planar_tolerance=0.002, joins=(), valley_bias=0.5, boost=frozenset(),
 ):
     """Unfold a mesh.
 
@@ -200,8 +281,10 @@ def unfold(
     polygons   list of vertex-index loops (outward winding)
     seams      iterable of (a, b) vertex pairs that must be cut
     materials  optional list of material indices per polygon
-    priority   'flat'  keep flat regions together (default)
-               'long'  keep long edges folded (fewer, stringier islands)
+    priority   'auto'  try 'long' and 'flat', keep the better (res.priority)
+               'long'  fold the longest edges first: fewest pieces
+               'flat'  fold the flattest edges first: seams sit on creases,
+                       usually more pieces
     max_faces  cap on faces per island (0 = no cap); smaller pieces leave
                more room for tabs on round models
     planar_tolerance  faces bent out of plane by more than this fraction of
@@ -210,12 +293,13 @@ def unfold(
                and only cut if joining would make pieces overlap
     valley_bias  0..1: how strongly cuts prefer valley (concave) edges, where
                seams hide in creases and mountain ridges stay crisp. A valley
-               is treated as if it were up to 90 degrees sharper.
+               counts as up to twice as sharp (flat) or half as long (long).
     """
     res = UnfoldResult()
     res.verts = list(verts)
     seam_keys = {edge_key(a, b) for a, b in seams}
     join_keys = {edge_key(a, b) for a, b in joins} - seam_keys
+    boost_keys = set(boost) - seam_keys
 
     # Size-relative tolerances.
     if verts:
@@ -285,13 +369,15 @@ def unfold(
             info.forced_cut = True
             continue
         length = g.len3(g.sub3(res.verts[aj], res.verts[ai]))
-        forced = 0 if key in join_keys else 1
+        forced = 0 if key in join_keys else (1 if key in boost_keys else 2)
         is_valley = info.angle < -VALLEY_MIN
         if priority == "long":
             eff_len = length * (1.0 - 0.5 * valley_bias) if is_valley else length
             weight = (forced, -eff_len, abs(info.angle))
         else:
-            eff = abs(info.angle) + (valley_bias * math.pi / 2 if is_valley else 0.0)
+            # Proportional, so it decides close calls rather than forcing
+            # every valley open (a fixed penalty fragments round models).
+            eff = abs(info.angle) * (1.0 + valley_bias if is_valley else 1.0)
             weight = (forced, round(eff, 4), -length)
         candidates.append((weight, key))
     if flipped:
@@ -302,45 +388,20 @@ def unfold(
     if nonmanifold:
         res.warnings.append(f"{nonmanifold} non-manifold edge(s) were cut")
 
-    # 3. Greedy merge
-    islands = {}
+    # 3. Join faces into pieces
     island_of = {}
     for face in res.faces:
         if face is None:
             continue
-        isl = Island(face.index, face.index, list(face.local))
-        islands[face.index] = isl
-        island_of[face.index] = isl
-
+        island_of[face.index] = Island(face.index, face.index, list(face.local))
+    weight_of = {key: w for w, key in candidates}
     candidates.sort()
+
+    def try_join(key):
+        return _try_merge(res, key, island_of, max_faces, eps_len, eps_cross)
+
     for _, key in candidates:
-        info = res.edges[key]
-        (fa, ka), (fb, kb) = info.uses
-        IA, IB = island_of[fa], island_of[fb]
-        if IA is IB:
-            continue  # closing a loop: stays a cut
-        if max_faces and len(IA.faces) + len(IB.faces) > max_faces:
-            continue
-        # Move the smaller island onto the larger one.
-        if len(IB.faces) > len(IA.faces):
-            fa, ka, fb, kb = fb, kb, fa, ka
-            IA, IB = IB, IA
-        A, B = res.faces[fa], res.faces[fb]
-        pa = IA.faces[fa]
-        pb = IB.faces[fb]
-        na, nb = len(A.loop), len(B.loop)
-        # A traverses i->j at corner ka; B traverses j->i at corner kb.
-        a_i, a_j = pa[ka], pa[(ka + 1) % na]
-        b_j, b_i = pb[kb], pb[(kb + 1) % nb]
-        t = g.Rigid2D.align_segment(b_i, b_j, a_i, a_j)
-        if _would_overlap(IA, IB, t, eps_len, eps_cross):
-            continue
-        IB.transform(t)
-        IA.absorb(IB)
-        IA.fold_keys.append(key)
-        for f in IB.faces:
-            island_of[f] = IA
-        info.kind = KIND_FOLD
+        try_join(key)
 
     refused = sum(
         1 for k in join_keys if k in res.edges and res.edges[k].kind != KIND_FOLD
@@ -374,6 +435,40 @@ def unfold(
                     info.number = number
     res.glue_count = number
     return res
+
+
+def _try_merge(res, key, island_of, max_faces, eps_len, eps_cross):
+    """Join the two pieces either side of `key` if they don't overlap."""
+    info = res.edges[key]
+    if info.kind == KIND_FOLD:
+        return False
+    (fa, ka), (fb, kb) = info.uses
+    IA, IB = island_of[fa], island_of[fb]
+    if IA is IB:
+        return False  # closing a loop: stays a cut
+    if max_faces and len(IA.faces) + len(IB.faces) > max_faces:
+        return False
+    # Move the smaller island onto the larger one.
+    if len(IB.faces) > len(IA.faces):
+        fa, ka, fb, kb = fb, kb, fa, ka
+        IA, IB = IB, IA
+    A, B = res.faces[fa], res.faces[fb]
+    pa = IA.faces[fa]
+    pb = IB.faces[fb]
+    na, nb = len(A.loop), len(B.loop)
+    # A traverses i->j at corner ka; B traverses j->i at corner kb.
+    a_i, a_j = pa[ka], pa[(ka + 1) % na]
+    b_j, b_i = pb[kb], pb[(kb + 1) % nb]
+    t = g.Rigid2D.align_segment(b_i, b_j, a_i, a_j)
+    if _would_overlap(IA, IB, t, eps_len, eps_cross):
+        return False
+    IB.transform(t)
+    IA.absorb(IB)
+    IA.fold_keys.append(key)
+    for f in IB.faces:
+        island_of[f] = IA
+    info.kind = KIND_FOLD
+    return True
 
 
 def _would_overlap(IA, IB, t, eps_len, eps_cross):

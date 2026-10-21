@@ -50,6 +50,10 @@ class PAPERCRAFT_PT_main(_Base, bpy.types.Panel):
             box = layout.box()
             col = box.column(align=True)
             col.label(text=f"{props.info_islands} piece(s), {props.info_glue} glue edges")
+            entry = live.cached(obj)
+            if entry is not None and props.priority == "auto" and entry.res.priority:
+                col.label(text="Auto chose: " + (
+                    "Fewest Pieces" if entry.res.priority == "long" else "Seams on Creases"))
             icon = "CHECKMARK" if props.info_fits else "ERROR"
             col.label(text=f"{props.info_pages} page(s)", icon=icon)
             col.label(text=f"Model size {props.info_size_mm:.0f} mm")

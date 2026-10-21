@@ -90,17 +90,28 @@ colour layers, so the model's materials preview correctly on the pages.
 
 ## How it works
 
-* Faces are flattened and joined greedily across the flattest edges first;
-  a join is refused if pieces would overlap, and that edge becomes a cut.
-* **Prefer Valley Cuts** (Pieces & Tabs, default 0.5) steers cuts onto
-  inward (valley) edges, where seams hide in the creases and mountain ridges
-  stay crisp; 0 cuts wherever is sharpest.
+* **Cut For** (Pieces & Tabs): *Auto* (default) unfolds twice, folding
+  the longest edges first (*Fewest Pieces*) and the flattest first (*Seams
+  on Creases*), and keeps the better result: fewest pieces, while avoiding
+  comb-shaped pieces whose seams sit tight together (fiddly to cut and
+  assemble). The panel shows which it chose; live edits reuse that choice.
+* Faces are joined greedily in that order; a join is refused if pieces would
+  overlap, and that edge becomes a cut. Faces left stranded in tiny pieces
+  (3 faces or fewer) get their edges tried first in up to five extra passes,
+  keeping the result with the fewest pieces.
+* **Prefer Valley Cuts** (default 0.5) nudges cuts onto inward (valley)
+  edges, where seams hide in the creases; it settles close calls rather
+  than forcing every valley open.
 * Faces bent out of plane are split into triangles (paper cannot bend).
 * Each piece keeps a hinge tree (parent face, hinge edge, fold angle). The
   rig turns each hinge into a bone whose Y axis lies on the fold, driven by a
   simple driver expression (no Python auto-run needed).
-* Tabs are trapezoids whose sides lean to fit the free space at each corner,
-  shortened when they would run into a neighbouring piece.
+* Tabs along a seam (a run of cut edges between the same two pieces) all go
+  on the same side, so a seam is glued in one direction; a tab only
+  switches side where that side has no room.
+* Every tab is trimmed to the shape of the face it glues onto, so it never
+  sticks out past that face. Tab sides lean to fit the free space at each
+  corner and tabs shorten rather than run into neighbouring pieces.
 
 ## Development
 
@@ -112,6 +123,7 @@ python tests/test_core.py          # unfold, refold and layout checks
 python tests/test_blender.py       # end-to-end, needs `pip install bpy`
 python tests/test_v02.py           # textures, line styles, cut rules, editor
 python tests/test_v03.py           # several models, rig rebuilds, baking
+python tests/test_v04.py           # cutting order, tab rules
 ```
 
 ## Roadmap

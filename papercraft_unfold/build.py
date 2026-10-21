@@ -430,6 +430,16 @@ def build_rig(context, src_obj, entry, include_tabs=True):
     #   model stands the right way up beside the layout.
     #   "Assembled" (influence = assemble): slide it into place on the model.
     table_z = (layout_matrix @ Vector((0.0, 0.0, 0.0))).z
+    # Keep the many helper empties out of the way in one sub-collection.
+    target_coll = None
+    for child in coll.children:
+        if child.get("papercraft_targets"):
+            target_coll = child
+            break
+    if target_coll is None:
+        target_coll = bpy.data.collections.new(f"{src_obj.name} Rig Targets")
+        target_coll["papercraft_targets"] = True
+        coll.children.link(target_coll)
     for name, isl in roots:
         f = isl.root
         face = res.faces[f]
@@ -453,7 +463,7 @@ def build_rig(context, src_obj, entry, include_tabs=True):
             target.empty_display_type = "PLAIN_AXES"
             target.empty_display_size = 0.0
             target.hide_select = True
-            coll.objects.link(target)
+            target_coll.objects.link(target)
             target.matrix_world = matrix @ rest[name]
             con = arm.pose.bones[name].constraints.new("COPY_TRANSFORMS")
             con.name = label

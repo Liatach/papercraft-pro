@@ -133,12 +133,139 @@ def _overlaps_any(poly, others, eps):
     return False
 
 
+def _clip_halfplane(poly, p, d, offset):
+    """Keep the part of `poly` left of the line through p with direction d,
+    moved `offset` inwards (Sutherland-Hodgman, one plane)."""
+    length = g.len2(d)
+    if length < 1e-12:
+        return poly
+    n = (-d[1] / length, d[0] / length)  # left normal
+
+    def dist(q):
+        return (q[0] - p[0]) * n[0] + (q[1] - p[1]) * n[1] - offset
+
+    out = []
+    count = len(poly)
+    for i in range(count):
+        cur, nxt = poly[i], poly[(i + 1) % count]
+        dc, dn = dist(cur), dist(nxt)
+        if dc >= -1e-9:
+            out.append(cur)
+        if (dc >= -1e-9) != (dn >= -1e-9):
+            t = dc / (dc - dn)
+            out.append((cur[0] + (nxt[0] - cur[0]) * t, cur[1] + (nxt[1] - cur[1]) * t))
+    return out
+
+
+def _partner_region(res, scale, other_use, a, b):
+    """The face a tab glues onto, laid flat across edge a->b (where the tab
+    sits). Returns its corner list in the tab's coordinates and the index of
+    the shared edge."""
+    fo, ko = other_use
+    face = res.faces[fo]
+    pts = [(x * scale, y * scale) for x, y in face.local]
+    n = len(pts)
+    # The partner traverses the shared edge j->i at corner ko.
+    pb_j, pb_i = pts[ko], pts[(ko + 1) % n]
+    t = g.Rigid2D.align_segment(pb_i, pb_j, a, b)
+    return [t.apply(q) for q in pts], ko
+
+
+def _fit_tab(trap, region, ko, margin):
+    """Trim a tab so it lies inside the face it glues onto. Edges meeting
+    the hinge clip exactly (the tab may run along them); the face's far
+    edges are kept `margin` away so the tab never shows past them."""
+    poly = list(trap)
+    n = len(region)
+    for k in range(n):
+        if k == ko:
+            continue  # the hinge itself
+        p, q = region[k], region[(k + 1) % n]
+        adjacent = k == (ko - 1) % n or k == (ko + 1) % n
+        poly = _clip_halfplane(poly, p, g.sub2(q, p), 0.0 if adjacent else margin)
+        if len(poly) < 3:
+            return None
+    # Drop repeated corners (a corner exactly on a clip line appears twice).
+    clean = []
+    for pt in poly:
+        if not clean or g.len2(g.sub2(pt, clean[-1])) > 1e-7:
+            clean.append(pt)
+    while len(clean) > 1 and g.len2(g.sub2(clean[0], clean[-1])) <= 1e-7:
+        clean.pop()
+    return clean if len(clean) >= 3 else None
+
+
+def _starts_at(poly, a, b):
+    """Rotate a tab outline so it runs a -> ... -> b (hinge last)."""
+    if not poly:
+        return poly
+    i = min(range(len(poly)), key=lambda k: g.len2(g.sub2(poly[k], a)))
+    poly = poly[i:] + poly[:i]
+    if g.len2(g.sub2(poly[-1], b)) > g.len2(g.sub2(poly[1], b)):
+        poly = [poly[0]] + poly[1:][::-1]
+    # Snap onto the hinge ends (slightly non-flat faces leave a few microns).
+    snap = 0.05 * g.len2(g.sub2(b, a))
+    if g.len2(g.sub2(poly[0], a)) < snap:
+        poly[0] = a
+    if g.len2(g.sub2(poly[-1], b)) < snap:
+        poly[-1] = b
+    return poly
+
+
+def _glue_chains(res, keys, island_of_face):
+    """Group glued edges into seams: runs of cut edges joining the same two
+    pieces, connected end to end (split at junctions where more than two
+    meet), with a consistent direction. Returns a
+    list of chains, each a list of (key, (p, q)) in walking order."""
+    groups = {}
+    for key in keys:
+        (fa, _), (fb, _) = res.edges[key].uses
+        pair = tuple(sorted((island_of_face[fa], island_of_face[fb])))
+        groups.setdefault(pair, []).append(key)
+    chains = []
+    for pair_keys in groups.values():
+        at_vertex = {}
+        for key in pair_keys:
+            for v in key:
+                at_vertex.setdefault(v, []).append(key)
+        seen = set()
+        for start in pair_keys:
+            if start in seen:
+                continue
+            chain = []
+            seen.add(start)
+            stack = [(start, start)]  # (key, oriented p->q)
+            while stack:
+                key, (p, q) = stack.pop()
+                chain.append((key, (p, q)))
+                for v, want_start in ((q, True), (p, False)):
+                    if len(at_vertex.get(v, ())) != 2:
+                        continue  # a junction: each branch is its own seam
+                    for nk in at_vertex.get(v, ()):
+                        if nk in seen:
+                            continue
+                        seen.add(nk)
+                        other = nk[0] if nk[1] == v else nk[1]
+                        # Continue the walk: leaving v forwards, or arriving at v.
+                        stack.append((nk, (v, other) if want_start else (other, v)))
+            chains.append(chain)
+    return chains
+
+
 def build_tabs(res, scale, tab_height, tab_angle_deg, flips=frozenset()):
-    """One tab per glued edge pair, on whichever side has room.
-    `flips`: edge keys whose preferred tab side is swapped by the user."""
+    """One tab per glued edge pair.
+
+    * Tabs along one seam all go on the same piece (easier to assemble),
+      switching sides only for an edge where that side has no room.
+    * Each tab is trimmed to fit inside the face it glues onto, so it never
+      sticks out past that face.
+    * Tab sides lean to fit the free space at the corners; tabs shorten
+      rather than run into neighbouring parts.
+    `flips`: edge keys whose tab side the user swapped."""
     angle = math.radians(max(15.0, min(89.0, tab_angle_deg)))
     eps = 1e-9
-    shrinks = (1.0, 0.75, 0.5, 0.35, 0.25)
+    margin = min(0.5, 0.1 * tab_height)
+    min_area = 0.2
     cmaps = {}
     island_of_face = {}
     mm = {}
@@ -150,8 +277,9 @@ def build_tabs(res, scale, tab_height, tab_angle_deg, flips=frozenset()):
         for f in isl.faces:
             island_of_face[f] = isl.index
 
-    tabs = []
-    done = set()
+    # Glued edges in a stable order (piece by piece, face by face).
+    keys = []
+    seen = set()
     for isl in res.islands:
         for f in isl.order:
             face = res.faces[f]
@@ -159,47 +287,96 @@ def build_tabs(res, scale, tab_height, tab_angle_deg, flips=frozenset()):
             for k in range(count):
                 key = edge_key(face.loop[k], face.loop[(k + 1) % count])
                 info = res.edges[key]
-                if info.kind != KIND_CUT or len(info.uses) != 2 or key in done:
-                    continue
-                done.add(key)
-                sides = list(info.uses)
-                # Alternate the preferred side so tabs spread around a seam.
-                if info.number % 2:
-                    sides.reverse()
-                if key in flips:
-                    sides.reverse()
-                placed = None
-                # Fit the side angles to the free space at each corner, then
-                # try either side at full height before shortening the tab.
-                fitted = []
-                for fs, ks in sides:
-                    il = island_of_face[fs]
-                    pts = mm[il][fs]
-                    loop = res.faces[fs].loop
-                    a, b = pts[ks], pts[(ks + 1) % len(pts)]
-                    va, vb = loop[ks], loop[(ks + 1) % len(loop)]
-                    tol = max(g.len2(g.sub2(b, a)) * 1e-6, 1e-9)
-                    free_a = _free_angle(cmaps[il], va, a, g.sub2(b, a), True, tol)
-                    free_b = _free_angle(cmaps[il], vb, b, g.sub2(a, b), False, tol)
-                    ang_a = max(math.radians(3.0), min(angle, free_a * 0.8))
-                    ang_b = max(math.radians(3.0), min(angle, free_b * 0.8))
-                    fitted.append((fs, ks, il, a, b, ang_a, ang_b))
-                for shrink in shrinks:
-                    for fs, ks, il, a, b, ang_a, ang_b in fitted:
-                        poly = _make_tab(a, b, tab_height * shrink, ang_a, ang_b)
-                        if poly and not _overlaps_any(poly, obstacles[il], eps):
-                            placed = Tab(il, fs, ks, info.number, poly)
-                            break
-                    if placed:
+                if info.kind == KIND_CUT and len(info.uses) == 2 and key not in seen:
+                    seen.add(key)
+                    keys.append(key)
+
+    cache = {}
+
+    def candidate(use, other, shrink):
+        """Tab polygon for gluing edge on `use`'s side, or None."""
+        ck = (use, shrink)
+        if ck in cache:
+            return cache[ck]
+        fs, ks = use
+        il = island_of_face[fs]
+        pts = mm[il][fs]
+        loop = res.faces[fs].loop
+        a, b = pts[ks], pts[(ks + 1) % len(pts)]
+        va, vb = loop[ks], loop[(ks + 1) % len(loop)]
+        tol = max(g.len2(g.sub2(b, a)) * 1e-6, 1e-9)
+        free_a = _free_angle(cmaps[il], va, a, g.sub2(b, a), True, tol)
+        free_b = _free_angle(cmaps[il], vb, b, g.sub2(a, b), False, tol)
+        ang_a = max(math.radians(3.0), min(angle, free_a * 0.8))
+        ang_b = max(math.radians(3.0), min(angle, free_b * 0.8))
+        poly = _make_tab(a, b, tab_height * shrink, ang_a, ang_b)
+        if poly is not None:
+            region, ko = _partner_region(res, scale, other, a, b)
+            poly = _fit_tab(poly, region, ko, margin)
+            if poly is not None and abs(g.polygon_area(poly)) < min_area:
+                poly = None
+            if poly is not None:
+                poly = _starts_at(poly, a, b)
+        cache[ck] = (il, poly)
+        return cache[ck]
+
+    def fits(use, other, shrink, placed_obstacles):
+        il, poly = candidate(use, other, shrink)
+        if poly is None or _overlaps_any(poly, placed_obstacles[il], eps):
+            return None
+        return il, poly
+
+    def side_uses(key, p, q):
+        """(left use, right use) for edge walked p->q: the face whose own
+        winding runs p->q is on the left."""
+        u0, u1 = res.edges[key].uses
+        f0, k0 = u0
+        loop = res.faces[f0].loop
+        runs_pq = loop[k0] == p and loop[(k0 + 1) % len(loop)] == q
+        return (u0, u1) if runs_pq else (u1, u0)
+
+    tabs = []
+    for chain in _glue_chains(res, keys, island_of_face):
+        # Pick the side where more full-size tabs fit.
+        scores = []
+        for side in (0, 1):
+            score = 0.0
+            for key, (p, q) in chain:
+                uses = side_uses(key, p, q)
+                use, other = uses[side], uses[1 - side]
+                ok = fits(use, other, 1.0, obstacles)
+                if ok:
+                    score += 1.0 + 1e-3 * abs(g.polygon_area(ok[1]))
+            scores.append(score)
+        side = 0 if scores[0] >= scores[1] else 1
+        for key, (p, q) in chain:
+            uses = side_uses(key, p, q)
+            pref, alt = uses[side], uses[1 - side]
+            if key in flips:
+                pref, alt = alt, pref
+            number = res.edges[key].number
+            placed = None
+            plan = [(pref, alt, s) for s in (1.0, 0.75, 0.5)]
+            plan += [(alt, pref, s) for s in (1.0, 0.75, 0.5)]
+            plan += [(pref, alt, s) for s in (0.35, 0.25)]
+            plan += [(alt, pref, s) for s in (0.35, 0.25)]
+            for use, other, shrink in plan:
+                ok = fits(use, other, shrink, obstacles)
+                if ok:
+                    il, poly = ok
+                    placed = Tab(il, use[0], use[1], number, poly)
+                    break
+            if placed is None:
+                for use, other in ((pref, alt), (alt, pref)):
+                    il, poly = candidate(use, other, 0.25)
+                    if poly is not None:
+                        placed = Tab(il, use[0], use[1], number, poly, squashed=True)
                         break
-                if placed is None:
-                    fs, ks, il, a, b, ang_a, ang_b = fitted[0]
-                    poly = _make_tab(a, b, tab_height * 0.25, ang_a, ang_b)
-                    if poly is None:
-                        continue
-                    placed = Tab(il, fs, ks, info.number, poly, squashed=True)
-                obstacles[placed.island].append((placed.points, g.bbox(placed.points)))
-                tabs.append(placed)
+            if placed is None:
+                continue  # no room at all (tiny edge): leave it untabbed
+            obstacles[placed.island].append((placed.points, g.bbox(placed.points)))
+            tabs.append(placed)
+    tabs.sort(key=lambda t: t.number)
     return tabs
 
 

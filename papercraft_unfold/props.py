@@ -58,12 +58,15 @@ class PapercraftSettings(bpy.types.PropertyGroup):
 
     # Unfolding --------------------------------------------------------
     priority: EnumProperty(
-        name="Keep Together",
+        name="Cut For",
         items=[
-            ("flat", "Flat Areas", "Fold flattest edges first; cuts land on sharp edges"),
-            ("long", "Long Edges", "Fold longest edges first; fewer cuts, longer pieces"),
+            ("auto", "Auto", "Try both and keep the better layout: fewest pieces, avoiding "
+             "comb-shaped pieces that are fiddly to cut and assemble"),
+            ("long", "Fewest Pieces", "Fold the longest edges first: fewer, larger pieces"),
+            ("flat", "Seams on Creases", "Fold the flattest edges first: seams sit on sharp "
+             "edges where they show least, usually more pieces"),
         ],
-        default="flat",
+        default="auto",
         update=_changed,
     )
     valley_bias: FloatProperty(
