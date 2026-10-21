@@ -1,0 +1,16 @@
+schema_version = "1.0.0"
+
+id = "papercraft_unfold"
+version = "0.1.0"
+name = "Papercraft Unfold"
+tagline = "Papercraft unfolding with glue tabs, page layout and fold rig"
+maintainer = "Kim Lang (Liatach Makes)"
+type = "add-on"
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+tags = ["Import-Export", "Mesh", "Animation"]
+
+[permissions]
+files = "Write SVG pattern pages to disk"
