@@ -269,5 +269,35 @@ with open(f"{OUT}/after_undo_bake_p1.svg", "w") as fh:
     fh.write(docs[0])
 print("bake after undo ok")
 
+# ------------------------------------------------------------ 6. materials untouched
+# Two Material Outputs, the inactive one selected (the donut file's setup):
+# baking must not switch the active output or leave nodes behind.
+bpy.ops.mesh.primitive_cube_add(location=(20, 0, 0))
+box = ctx.active_object
+mat2 = bpy.data.materials.new("two outputs")
+mat2.use_nodes = True
+nt = mat2.node_tree
+spare = nt.nodes["Material Output"]
+emit = nt.nodes.new("ShaderNodeEmission")
+emit.inputs["Color"].default_value = (0.9, 0.2, 0.1, 1)
+live_out = nt.nodes.new("ShaderNodeOutputMaterial")
+nt.links.new(emit.outputs[0], live_out.inputs["Surface"])
+live_out.is_active_output = True
+nt.nodes.active = spare
+spare.is_active_output = False
+live_out.is_active_output = True
+box.data.materials.append(mat2)
+before = [(n.name, n.is_active_output) for n in nt.nodes if n.type == "OUTPUT_MATERIAL"]
+count = len(nt.nodes)
+box.papercraft.bake_dpi = 60
+entry = unfold(box, texture_mode="BAKE", bake_pass="AUTO")
+svg_documents(ctx, box, entry)
+from papercraft_unfold import bake as bake_mod  # noqa: E402
+after = [(n.name, n.is_active_output) for n in nt.nodes if n.type == "OUTPUT_MATERIAL"]
+print("outputs before/after:", before, after, "| auto pass:", bake_mod.bake_pages.last_pass)
+assert before == after and len(nt.nodes) == count, "bake modified the user's material"
+assert bake_mod.bake_pages.last_pass == "EMIT"
+assert not [m for m in bpy.data.materials if m.name.startswith("Papercraft Bake")]
+
 addon.unregister()
 print("V03 OK")

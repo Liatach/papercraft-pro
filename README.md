@@ -23,7 +23,9 @@ like; selecting a layout or rig jumps to its model.
 1. Select the model and press **Unfold**. Its pages appear beside it; move
    the layout object anywhere (it stays put; **Reset Layout Position**
    brings it back).
-2. **Show Layout** looks straight down on the pages. Split the viewport
+2. **Show Layout** looks straight down on the pages and switches that view
+   to Material Preview (Solid mode can't show textures, so pieces would look
+   like blank grey shapes). Split the viewport
    (View → Area → Vertical Split) to see model and layout side by side.
 3. Turn on **Live Layout** and mark seams in Edit Mode (**Cut Here / Join**)
    to control where the model is cut; the pages update as you work.
@@ -56,8 +58,11 @@ A *Join* made with Edit Cuts overrides a material/colour/sharp cut.
 * **Print: Baked Material** (default): Cycles bakes what the material shows
   onto each page, so anything prints: image textures on any UV map, layered
   paint setups such as the Paint System add-on (its `PS_UVMap` and grouped
-  layers), procedurals and vertex colours. Choose *Base Colour* (no
-  lighting), *Emission*, or *Full Render*, and the *Bake DPI*.
+  layers), procedurals and vertex colours. *Auto* (default) bakes the base
+  colour and falls back to *Emission* for materials that colour through an
+  emission path (Paint System materials often do), or pick *Base Colour*,
+  *Emission* or *Full Render* yourself; *Bake DPI* defaults to 300. Baking
+  runs on temporary copies of your materials, so they are never changed.
   **Texture on Tabs** carries the neighbouring art onto the tabs so tiny
   gaps at glued seams don't show tab colour.
 * **Image Textures**: fast; prints the image feeding Base Color (found
@@ -68,9 +73,9 @@ A *Join* made with Edit Cuts overrides a material/colour/sharp cut.
 * **Numbers**: *On Faces* (inside both glued edges), *Tabs & Scrap* (on
   the tab, and on the scrap just outside the other edge, so nothing prints
   on the art), or *Off*.
-* **Lines**: *Default* (black cut, red mountain, blue valley), *Custom
-  Colour* (one colour and opacity for every line, e.g. white at 40% over
-  dark art or black at 30% over light art), or *No Lines* (hidden layers,
+* **Lines**: *Custom Colour* (default: black at 10% opacity, 0.25 mm; one
+  colour and opacity for every line, e.g. white at 40% over dark art),
+  *Default* (black cut, red mountain, blue valley), or *No Lines* (hidden layers,
   still there for a cutting machine). *Line Width* and *Hide Folds Under N°*
   fine-tune it.
 

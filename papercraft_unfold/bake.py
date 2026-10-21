@@ -89,17 +89,43 @@ def _page_mesh(src_obj, entry, items, name):
     return mesh
 
 
-def bake_pages(context, src_obj, entry, dpi=200, bake_pass="BASE", margin_mm=0.3,
+_MODE_SET = {
+    "EDIT_MESH": "EDIT",
+    "PAINT_TEXTURE": "TEXTURE_PAINT",
+    "PAINT_VERTEX": "VERTEX_PAINT",
+    "PAINT_WEIGHT": "WEIGHT_PAINT",
+    "SCULPT": "SCULPT",
+}
+
+
+def _baked_brightness(image):
+    """Mean brightness of the baked (opaque) pixels, 0..1; -1 if none."""
+    import numpy as np
+
+    w, h = image.size
+    px = np.empty(w * h * 4, dtype=np.float32)
+    image.pixels.foreach_get(px)
+    px = px.reshape(-1, 4)
+    solid = px[px[:, 3] > 0.5]
+    if len(solid) == 0:
+        return -1.0
+    return float(solid[:, :3].mean())
+
+
+def bake_pages(context, src_obj, entry, dpi=200, bake_pass="AUTO", margin_mm=0.3,
                samples=None, progress=None):
-    """Return one Texture (data: URI PNG) per page, or None for empty pages."""
+    """Return one Texture (data: URI PNG) per page, or None for empty pages.
+
+    The model's own materials are never modified: the bake runs on
+    temporary copies (adding a bake target to a material and restoring its
+    selected node can switch its active Material Output, and paint add-ons
+    such as Paint System react to node changes)."""
     scene = context.scene
-    res, lay, src = entry.res, entry.lay, entry.src
+    res, lay = entry.res, entry.lay
     width = max(16, round(lay.page_w / 25.4 * dpi))
     height = max(16, round(lay.page_h / 25.4 * dpi))
     margin_px = max(1, round(margin_mm / 25.4 * dpi))
-    bake_type, pass_filter = PASSES.get(bake_pass, PASSES["BASE"])
-    if samples is None:
-        samples = 32 if bake_type == "COMBINED" else 4
+    passes = ["BASE", "EMIT", "COMBINED"] if bake_pass == "AUTO" else [bake_pass]
 
     per_page = {}
     for isl in res.islands:
@@ -110,22 +136,27 @@ def bake_pages(context, src_obj, entry, dpi=200, bake_pass="BASE", margin_mm=0.3
     view_layer = context.view_layer
     prev_selected = [o.name for o in context.selected_objects]
     prev_active = view_layer.objects.active.name if view_layer.objects.active else None
-    if context.mode != "OBJECT" and view_layer.objects.active is not None:
+    prev_mode = context.mode
+    image_paint = scene.tool_settings.image_paint
+    prev_canvas = image_paint.canvas
+    if prev_mode != "OBJECT" and view_layer.objects.active is not None:
         bpy.ops.object.mode_set(mode="OBJECT")
 
-    # Materials used by the model, with a bake target node in each.
-    slot_mats = []
-    temp_mats = []
-    # Read materials from the object now: cached references can be stale.
-    live_mats = [slot.material for slot in src_obj.material_slots]
-    for m in live_mats or [None]:
+    # Private copies of the model's materials (node groups and images are
+    # shared, so everything shades exactly the same).
+    copies = []
+    for slot in src_obj.material_slots or [None]:
+        m = slot.material if slot is not None else None
         if m is None or not m.use_nodes or m.node_tree is None:
-            m = _fallback_material(m)
-            temp_mats.append(m)
-        slot_mats.append(m)
+            copies.append(_fallback_material(m))
+        else:
+            c = m.copy()
+            c.name = f"Papercraft Bake ({m.name})"
+            copies.append(c)
 
     results = []
-    with _SceneState(scene, samples):
+    chosen = None
+    try:
         for page in range(max(lay.page_count, 1)):
             items = per_page.get(page)
             if not items:
@@ -134,62 +165,76 @@ def bake_pages(context, src_obj, entry, dpi=200, bake_pass="BASE", margin_mm=0.3
             if progress:
                 progress(page)
             mesh = _page_mesh(src_obj, entry, items, f"Papercraft Bake {page}")
-            for m in slot_mats:
+            for m in copies:
                 mesh.materials.append(m)
             obj = bpy.data.objects.new("Papercraft Bake", mesh)
             obj.matrix_world = src_obj.matrix_world
             scene.collection.objects.link(obj)
-            image = bpy.data.images.new(
-                f"Papercraft Page {page + 1}", width, height, alpha=True
-            )
+            image = bpy.data.images.new(f"Papercraft Page {page + 1}", width, height, alpha=True)
             image.generated_color = (0.0, 0.0, 0.0, 0.0)
-            added = []
             try:
-                for m in slot_mats:
-                    nodes = m.node_tree.nodes
-                    node = nodes.new("ShaderNodeTexImage")
+                for m in copies:
+                    node = m.node_tree.nodes.new("ShaderNodeTexImage")
                     node.image = image
-                    added.append((m, node, nodes.active))
-                    nodes.active = node
+                    m.node_tree.nodes.active = node
                 for o in context.selected_objects:
                     o.select_set(False)
                 obj.select_set(True)
                 view_layer.objects.active = obj
-                kwargs = dict(
-                    type=bake_type,
-                    margin=margin_px,
-                    use_clear=True,
-                    uv_layer=BAKE_UV,
-                    target="IMAGE_TEXTURES",
-                )
-                if pass_filter:
-                    kwargs["pass_filter"] = pass_filter
-                try:
-                    kwargs["margin_type"] = "EXTEND"
-                    bpy.ops.object.bake(**kwargs)
-                except TypeError:
-                    kwargs.pop("margin_type")
-                    bpy.ops.object.bake(**kwargs)
+                # Auto: base colour first; materials that colour through an
+                # emission path (common in paint add-ons) bake black there.
+                for candidate in ([chosen] if chosen else passes):
+                    _bake(scene, candidate, samples, margin_px)
+                    if bake_pass != "AUTO" or chosen or candidate == passes[-1]:
+                        break
+                    if _baked_brightness(image) > 0.02:
+                        break
+                chosen = chosen or candidate
                 png = _encode_pixels(image, max(width, height))
                 uri = f"data:image/png;base64,{base64.b64encode(png).decode('ascii')}"
                 results.append(Texture(uri, width, height))
             finally:
-                for m, node, prev in added:
-                    m.node_tree.nodes.remove(node)
-                    if prev is not None:
-                        m.node_tree.nodes.active = prev
                 bpy.data.objects.remove(obj, do_unlink=True)
                 bpy.data.meshes.remove(mesh)
                 bpy.data.images.remove(image)
-
-    for m in temp_mats:
-        bpy.data.materials.remove(m)
-    for o in context.selected_objects:
-        o.select_set(False)
-    for name in prev_selected:
-        o = bpy.data.objects.get(name)
-        if o is not None and o.name in view_layer.objects:
-            o.select_set(True)
-    if prev_active and prev_active in view_layer.objects:
-        view_layer.objects.active = bpy.data.objects[prev_active]
+    finally:
+        for m in copies:
+            bpy.data.materials.remove(m)
+        for o in context.selected_objects:
+            o.select_set(False)
+        for name in prev_selected:
+            o = bpy.data.objects.get(name)
+            if o is not None and o.name in view_layer.objects:
+                o.select_set(True)
+        if prev_active and prev_active in view_layer.objects:
+            view_layer.objects.active = bpy.data.objects[prev_active]
+            if prev_mode in _MODE_SET:
+                try:
+                    bpy.ops.object.mode_set(mode=_MODE_SET[prev_mode])
+                except RuntimeError:
+                    pass
+        try:
+            image_paint.canvas = prev_canvas
+        except (ReferenceError, TypeError):
+            pass
+    bake_pages.last_pass = chosen
     return results
+
+
+def _bake(scene, pass_name, samples, margin_px):
+    bake_type, pass_filter = PASSES.get(pass_name, PASSES["BASE"])
+    n = samples if samples is not None else (32 if bake_type == "COMBINED" else 4)
+    with _SceneState(scene, n):
+        kwargs = dict(
+            type=bake_type,
+            margin=margin_px,
+            use_clear=True,
+            uv_layer=BAKE_UV,
+            target="IMAGE_TEXTURES",
+        )
+        if pass_filter:
+            kwargs["pass_filter"] = pass_filter
+        try:
+            bpy.ops.object.bake(margin_type="EXTEND", **kwargs)
+        except TypeError:
+            bpy.ops.object.bake(**kwargs)

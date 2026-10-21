@@ -66,7 +66,10 @@ class PAPERCRAFT_OT_clear(_NeedsModel, bpy.types.Operator):
 class PAPERCRAFT_OT_frame_layout(_NeedsModel, bpy.types.Operator):
     bl_idname = "papercraft.frame_layout"
     bl_label = "Show Layout"
-    bl_description = "Look straight down at this model's paper layout in this viewport"
+    bl_description = (
+        "Look straight down at this model's paper layout in this viewport "
+        "(switches to Material Preview so the art shows)"
+    )
 
     @classmethod
     def poll(cls, context):
@@ -89,6 +92,11 @@ class PAPERCRAFT_OT_frame_layout(_NeedsModel, bpy.types.Operator):
         context.view_layer.objects.active = lay
         bpy.ops.view3d.view_axis(type="TOP")
         bpy.ops.view3d.view_selected()
+        shading = context.space_data.shading
+        if shading.type in ("WIREFRAME", "SOLID"):
+            # Solid mode can't show image/painted textures: the pieces would
+            # look like blank grey shapes.
+            shading.type = "MATERIAL"
         lay.select_set(False)
         src.select_set(True)
         context.view_layer.objects.active = src

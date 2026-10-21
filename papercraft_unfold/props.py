@@ -149,14 +149,16 @@ class PapercraftSettings(bpy.types.PropertyGroup):
     bake_pass: EnumProperty(
         name="Bake",
         items=[
+            ("AUTO", "Auto", "Base colour; falls back to emission for materials that colour "
+             "through an emission path (e.g. Paint System), then to a full render"),
             ("BASE", "Base Colour", "The material's colour without lighting (usual for papercraft)"),
             ("EMIT", "Emission", "For materials that output colour through an Emission shader"),
             ("COMBINED", "Full Render", "Colour with the scene's lighting and shading"),
         ],
-        default="BASE",
+        default="AUTO",
     )
     bake_dpi: IntProperty(
-        name="Bake DPI", default=200, min=50, max=600,
+        name="Bake DPI", default=300, min=50, max=600,
         description="Print resolution of the baked pages (300 for fine detail; slower)",
     )
     tab_texture: BoolProperty(
@@ -192,14 +194,14 @@ class PapercraftSettings(bpy.types.PropertyGroup):
              "All lines in one colour and opacity, e.g. white over dark art or soft black over light art"),
             ("NONE", "No Lines", "Print the art only (lines stay in the file as hidden layers)"),
         ],
-        default="DEFAULT",
+        default="CUSTOM",
     )
     line_color: FloatVectorProperty(
         name="Line Colour", subtype="COLOR", size=3, min=0.0, max=1.0,
         default=(0.0, 0.0, 0.0),
     )
     line_opacity: FloatProperty(
-        name="Line Opacity", default=0.5, min=0.0, max=1.0, subtype="FACTOR",
+        name="Line Opacity", default=0.1, min=0.0, max=1.0, subtype="FACTOR",
     )
     line_width: FloatProperty(name="Line Width", default=0.25, min=0.05, max=2.0)
     fold_min_angle: FloatProperty(

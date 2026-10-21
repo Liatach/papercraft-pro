@@ -7,6 +7,7 @@ import bpy
 from mathutils import Matrix, Vector
 
 from . import targets as T
+from .core.geom import polygon_area
 
 PAGE_GAP_MM = 15.0
 
@@ -174,20 +175,22 @@ def build_layout(scene, src_obj, src, res, lay):
     for page in range(max(lay.page_count, 1)):
         add_poly(
             [(0, 0), (lay.page_w, 0), (lay.page_w, lay.page_h), (0, lay.page_h)],
-            page, 0.0, 0, 4,
+            page, -0.6, 0, 4,  # sheet sits clearly under the pieces
         )
         poly_map.append(("page", page))
     for n, tab in enumerate(lay.tabs):
         place = lay.placements[tab.island]
         pts = lay.tab_points(tab)
-        add_poly(pts, place.page, 0.05, 2 if tab.squashed else 1, len(pts))
+        if polygon_area(pts) < 0:  # face up like everything else
+            pts = pts[::-1]
+        add_poly(pts, place.page, -0.2, 2 if tab.squashed else 1, len(pts))
         poly_map.append(("tab", n))
     for isl in res.islands:
         place = lay.placements[isl.index]
         for f in isl.order:
             face = res.faces[f]
             add_poly(
-                lay.face_points(res, isl, f), place.page, 0.1,
+                lay.face_points(res, isl, f), place.page, 0.0,
                 slot_of_src.get(face.material, 0), face,
             )
             poly_map.append(("face", f))
