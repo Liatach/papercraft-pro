@@ -84,6 +84,12 @@ class PAPERCRAFT_PT_cuts(_Child, bpy.types.Panel):
         col.prop(props, "cut_materials")
         col.prop(props, "cut_colors")
         col.prop(props, "cut_sharp")
+        box = layout.box()
+        col = box.column(align=True)
+        col.operator("papercraft.edit_cuts", text="Edit Cuts & Tabs", icon="SCULPTMODE_HLT")
+        col.label(text="Click edge: cut / join")
+        col.label(text="Click tab: other side of seam")
+        col.label(text="Shift+click tab: inside / outside")
 
 
 class PAPERCRAFT_PT_paper(_Child, bpy.types.Panel):

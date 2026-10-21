@@ -78,22 +78,43 @@ def default_layout_location(verts, lay):
     return Vector((hi[0] + size * 0.25, (lo[1] + hi[1]) * 0.5 - lay.page_h * unit * 0.5, lo[2]))
 
 
+def _corner_values(item, per_poly, blank):
+    """Per-corner values for one new polygon (see write_corner_layers)."""
+    if isinstance(item, int):
+        return [blank] * item
+    if isinstance(item, tuple):  # ("interp", face, weights): an outside tab
+        _, face, weights = item
+        poly = per_poly[face.source]
+        vals = [poly[c] for c in face.corners]
+        size = len(blank)
+        return [
+            tuple(sum(vals[c][i] * w for c, w in ws) for i in range(size)) for ws in weights
+        ]
+    poly = per_poly[item.source]
+    return [poly[c] for c in item.corners]
+
+
+def tab_corner_source(tab, res):
+    """Corner source for a tab polygon: covered art if it's an outside tab."""
+    if getattr(tab, "outer", False) and tab.partner is not None and tab.weights:
+        return ("interp", res.faces[tab.partner[0]], tab.weights)
+    return len(tab.points)
+
+
 def write_corner_layers(mesh, src, corner_sources):
     """Copy every UV map and colour attribute from the model.
 
-    corner_sources: per new polygon either a res Face (copy its corners) or
-    an int n (n blank corners, e.g. tabs and page sheets)."""
+    corner_sources: per new polygon either a res Face (copy its corners), an
+    int n (n blank corners, e.g. tabs and page sheets) or ("interp", face,
+    weights) to blend a face's corners (outside tabs show the art they
+    cover)."""
     for name, per_poly in src.uv_layers.items():
         if len(mesh.uv_layers) >= 8:
             break
         flat = []
         for item in corner_sources:
-            if isinstance(item, int):
-                flat.extend([0.0] * (2 * item))
-                continue
-            poly_uv = per_poly[item.source]
-            for c in item.corners:
-                flat.extend(poly_uv[c])
+            for uv in _corner_values(item, per_poly, (0.0, 0.0)):
+                flat.extend(uv[:2])
         layer = mesh.uv_layers.new(name=name)
         layer.data.foreach_set("uv", flat)
     for uv in mesh.uv_layers:
@@ -103,12 +124,8 @@ def write_corner_layers(mesh, src, corner_sources):
     for name, per_poly in src.color_layers.items():
         flat = []
         for item in corner_sources:
-            if isinstance(item, int):
-                flat.extend([1.0] * (4 * item))
-                continue
-            poly_col = per_poly[item.source]
-            for c in item.corners:
-                col = tuple(poly_col[c]) + (1.0,) * (4 - len(poly_col[c]))
+            for col in _corner_values(item, per_poly, (1.0, 1.0, 1.0, 1.0)):
+                col = tuple(col) + (1.0,) * (4 - len(col))
                 flat.extend(col[:4])
         try:
             attr = mesh.color_attributes.new(name, "FLOAT_COLOR", "CORNER")
@@ -181,9 +198,15 @@ def build_layout(scene, src_obj, src, res, lay):
     for n, tab in enumerate(lay.tabs):
         place = lay.placements[tab.island]
         pts = lay.tab_points(tab)
+        corner_src = tab_corner_source(tab, res)
+        mat = 2 if tab.squashed else 1
+        if not isinstance(corner_src, int):  # outside tab: covered art
+            mat = slot_of_src.get(res.faces[tab.partner[0]].material, 1)
         if polygon_area(pts) < 0:  # face up like everything else
             pts = pts[::-1]
-        add_poly(pts, place.page, -0.2, 2 if tab.squashed else 1, len(pts))
+            if not isinstance(corner_src, int):
+                corner_src = (corner_src[0], corner_src[1], corner_src[2][::-1])
+        add_poly(pts, place.page, -0.2 if isinstance(corner_src, int) else 0.05, mat, corner_src)
         poly_map.append(("tab", n))
     for isl in res.islands:
         place = lay.placements[isl.index]
@@ -484,13 +507,22 @@ def build_rig(context, src_obj, entry, include_tabs=True):
     tab_slot = len(src.mat_list)
     for name, tab in tab_bones:
         page = lay.placements[tab.island].page
-        pts = [frame.to_rig(page, p, layout_matrix) for p in lay.tab_points(tab)]
+        flat_pts = lay.tab_points(tab)
+        corner_src = tab_corner_source(tab, res)
+        if polygon_area(flat_pts) < 0:  # face the same way as the pieces
+            flat_pts = flat_pts[::-1]
+            if not isinstance(corner_src, int):
+                corner_src = (corner_src[0], corner_src[1], corner_src[2][::-1])
+        pts = [frame.to_rig(page, p, layout_matrix) for p in flat_pts]
         base = len(verts)
         verts.extend(pts)
         faces.append(list(range(base, base + len(pts))))
         groups.append(name)
-        mat_idx.append(tab_slot)
-        corners.append(len(pts))
+        if isinstance(corner_src, int):
+            mat_idx.append(tab_slot)
+        else:
+            mat_idx.append(res.faces[tab.partner[0]].material)
+        corners.append(corner_src)
 
     mesh.from_pydata([tuple(v) for v in verts], [], faces)
     for m in src.mat_list:

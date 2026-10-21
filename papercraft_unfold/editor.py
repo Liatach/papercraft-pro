@@ -16,12 +16,13 @@ from mathutils.geometry import intersect_point_line
 from . import build, live
 from . import targets as T
 from .core.unfold import KIND_FOLD, edge_key
-from .mesh_io import FLIP_ATTR, JOIN_ATTR
+from .mesh_io import FLIP_ATTR, JOIN_ATTR, OUTER_ATTR
 
 COLORS = {
     "cut": (1.0, 0.35, 0.1, 1.0),  # hover: will cut
     "join": (0.2, 0.85, 0.3, 1.0),  # hover: will join
-    "flip": (0.25, 0.6, 1.0, 1.0),  # hover: tab will flip
+    "flip": (0.25, 0.6, 1.0, 1.0),  # hover: tab will move to the other side
+    "outer": (0.75, 0.3, 1.0, 1.0),  # hover (Shift): tab inside <-> outside
     "seam": (0.9, 0.1, 0.1, 0.9),  # existing cuts on the model
 }
 
@@ -189,6 +190,9 @@ def apply_pick(src_obj, p):
     if p.action == "flip":
         attr = _int_attr(mesh, FLIP_ATTR)
         attr.data[ei].value = 0 if attr.data[ei].value else 1
+    elif p.action == "outer":
+        attr = _int_attr(mesh, OUTER_ATTR)
+        attr.data[ei].value = 0 if attr.data[ei].value else 1
     elif p.action == "cut":
         mesh.edges[ei].use_seam = True
         attr = mesh.attributes.get(JOIN_ATTR)
@@ -271,7 +275,8 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
     bl_label = "Edit Cuts"
     bl_description = (
         "Click edges on the model or the paper layout to cut or join them; "
-        "click a tab to move it to the other side"
+        "click a tab to move it to the other side; Shift+click a tab to glue it "
+        "on the outside (printed with the art it covers)"
     )
     bl_options = {"REGISTER", "UNDO"}
 
@@ -308,8 +313,8 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
         )
         context.window_manager.modal_handler_add(self)
         context.workspace.status_text_set(
-            "Click edge: cut / join  ·  Click tab: flip side  ·  "
-            "Right-click / Esc: done"
+            "Click edge: cut / join  ·  Click tab: other side of the seam  ·  "
+            "Shift+click tab: glue inside / outside  ·  Right-click / Esc: done"
         )
         _redraw(context)
         return {"RUNNING_MODAL"}
@@ -341,11 +346,13 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
         direction = view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
         src_obj = self.src_obj
         self.hover = pick(src_obj, self.entry, origin, direction) if src_obj else None
+        if self.hover is not None and self.hover.action == "flip" and event.shift:
+            self.hover.action = "outer"  # Shift: glue inside <-> outside
 
     def modal(self, context, event):
         if event.type in PASS_THROUGH_EVENTS:
             return {"PASS_THROUGH"}
-        if event.type == "MOUSEMOVE":
+        if event.type in {"MOUSEMOVE", "LEFT_SHIFT", "RIGHT_SHIFT"}:
             self._update_hover(context, event)
             _redraw(context)
             return {"PASS_THROUGH"}

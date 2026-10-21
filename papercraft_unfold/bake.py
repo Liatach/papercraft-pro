@@ -15,6 +15,7 @@ import bpy
 from mathutils import Vector
 
 from .build import write_corner_layers
+from .core.geom import polygon_area
 from .core.svg import Texture
 from .textures import _encode_pixels
 
@@ -64,11 +65,15 @@ def _fallback_material(src_mat):
     return mat
 
 
+def page_of(items):
+    return items[0][2] if items and len(items[0]) > 2 else None
+
+
 def _page_mesh(src_obj, entry, items, name):
     src, res, lay = entry.src, entry.res, entry.lay
     inv = src_obj.matrix_world.inverted()
     verts, faces, mats, corners, page_uv = [], [], [], [], []
-    for isl, f in items:
+    for isl, f, _page in items:
         face = res.faces[f]
         base = len(verts)
         verts.extend(tuple(inv @ Vector(src.verts[v])) for v in face.loop)
@@ -76,6 +81,28 @@ def _page_mesh(src_obj, entry, items, name):
         mats.append(face.material)
         corners.append(face)
         for x, y in lay.face_points(res, isl, f):
+            page_uv.extend((x / lay.page_w, y / lay.page_h))
+    # Outside tabs on this page: bake the art of the face they cover, from
+    # that face's real surface (so procedural/object coordinates match).
+    for tab in lay.tabs:
+        if not tab.outer or tab.partner is None:
+            continue
+        if lay.placements[tab.island].page != page_of(items):
+            continue
+        partner = res.faces[tab.partner[0]]
+        corners3 = [Vector(src.verts[v]) for v in partner.loop]
+        weights = list(tab.weights)
+        page_pts = lay.tab_points(tab)
+        if polygon_area(page_pts) < 0:  # wind like the face it covers
+            weights, page_pts = weights[::-1], page_pts[::-1]
+        base = len(verts)
+        for ws in weights:
+            p3 = sum((corners3[c] * w for c, w in ws), Vector())
+            verts.append(tuple(inv @ p3))
+        faces.append(list(range(base, base + len(weights))))
+        mats.append(partner.material)
+        corners.append(("interp", partner, weights))
+        for x, y in page_pts:
             page_uv.extend((x / lay.page_w, y / lay.page_h))
     mesh = bpy.data.meshes.new(name)
     mesh.from_pydata(verts, [], faces)
@@ -131,7 +158,7 @@ def bake_pages(context, src_obj, entry, dpi=200, bake_pass="AUTO", margin_mm=0.3
     for isl in res.islands:
         page = lay.placements[isl.index].page
         for f in isl.order:
-            per_page.setdefault(page, []).append((isl, f))
+            per_page.setdefault(page, []).append((isl, f, page))
 
     view_layer = context.view_layer
     prev_selected = [o.name for o in context.selected_objects]

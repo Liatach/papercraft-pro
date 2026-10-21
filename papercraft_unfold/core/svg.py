@@ -130,16 +130,21 @@ def export_pages(
 
     tab_on = {(t.face, t.corner): t for t in lay.tabs}
 
+    def face_uvs(face, material):
+        layer = uvs[material] if uvs and material < len(uvs) else None
+        if layer and face.source < len(layer) and layer[face.source]:
+            src_uv = layer[face.source]
+            return [src_uv[c] for c in face.corners]
+        return None
+
     def face_fill(page, face, pts):
         """Append the face's print fill: texture triangles or flat colour."""
+        fill_poly(page, face.material, pts, face_uvs(face, face.material))
+
+    def fill_poly(page, material, pts, face_uv):
         tex = None
-        if textures and face.material < len(textures):
-            tex = textures[face.material]
-        face_uv = None
-        layer = uvs[face.material] if uvs and face.material < len(uvs) else None
-        if tex is not None and layer and face.source < len(layer) and layer[face.source]:
-            src_uv = layer[face.source]
-            face_uv = [src_uv[c] for c in face.corners]
+        if textures and material < len(textures):
+            tex = textures[material]
         if tex is not None and face_uv is not None:
             done = 0
             for a, b, c in g.triangulate_2d(pts):
@@ -170,8 +175,8 @@ def export_pages(
             if done:
                 return
         col = "#ffffff"
-        if colors and face.material < len(colors) and colors[face.material]:
-            col = _hex(colors[face.material])
+        if colors and material < len(colors) and colors[material]:
+            col = _hex(colors[material])
         page["faces"].append(
             f'<polygon points="{" ".join(pt(p) for p in pts)}" '
             f'style="fill:{col};stroke:{col};stroke-width:{_fmt(max(bleed * 2, 0.05))};'
@@ -211,13 +216,29 @@ def export_pages(
                     tp = lay.tab_points(tab)
                     poly = f'<polygon points="{" ".join(pt(p) for p in tp)}"/>'
                     page["tabs"].append(poly)
-                    if tab_texture:
+                    if tab_texture or tab.outer:
                         page["clip"].append(poly)
+                    if tab.outer and fill_faces and not (
+                        page_images and page_images[place.page] is not None
+                    ):
+                        # Outside tab: print the art of the face it covers.
+                        partner = res.faces[tab.partner[0]]
+                        p_uv = face_uvs(partner, partner.material)
+                        tab_uv = None
+                        if p_uv:
+                            tab_uv = [
+                                (sum(p_uv[c][0] * w for c, w in ws), sum(p_uv[c][1] * w for c, w in ws))
+                                for ws in tab.weights
+                            ]
+                        fill_poly(page, partner.material, tp, tab_uv)
                     page["cut"].append(
                         f'<path d="M {pt(tp[0])} ' + " ".join(f"L {pt(p)}" for p in tp[1:]) + '"/>'
                     )
-                    page["mountain"].append(line(a, b))  # tab folds behind
-                    if numbered and numbers == "CLEAN":
+                    # The tab follows the face it glues to: same fold direction.
+                    page["valley" if tab.angle < -1e-6 else "mountain"].append(line(a, b))
+                    if numbered and numbers == "CLEAN" and tab.outer:
+                        pass  # nothing printed on a visible tab
+                    elif numbered and numbers == "CLEAN":
                         tc = g.polygon_centroid(tp)
                         page["numbers"].append(_number(a, b, info.number, H, at=tc, outward=True))
                 else:

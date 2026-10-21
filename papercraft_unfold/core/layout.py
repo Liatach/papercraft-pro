@@ -18,7 +18,8 @@ PAGE_SIZES_MM = {
 
 
 class Tab:
-    __slots__ = ("island", "face", "corner", "number", "points", "squashed")
+    __slots__ = ("island", "face", "corner", "number", "points", "squashed", "outer",
+                 "partner", "weights", "angle")
 
     def __init__(self, island, face, corner, number, points, squashed=False):
         self.island = island
@@ -27,6 +28,10 @@ class Tab:
         self.number = number
         self.points = points  # island-local mm, before placement
         self.squashed = squashed  # could not avoid an overlap
+        self.outer = False  # glued on the outside: printed with the covered art
+        self.partner = None  # (face, corner) the tab glues onto
+        self.weights = None  # per tab point: [(partner corner, weight), ...]
+        self.angle = 0.0  # fold angle of the hinge (+ mountain, - valley)
 
 
 class Placement:
@@ -252,7 +257,30 @@ def _glue_chains(res, keys, island_of_face):
     return chains
 
 
-def build_tabs(res, scale, tab_height, tab_angle_deg, flips=frozenset()):
+def partner_weights(region, points):
+    """Barycentric weights of each tab point over the partner face's corners
+    (region = the partner face laid flat across the hinge). Lets anything
+    stored per corner (UVs, colours, 3D position) be read for the tab."""
+    tris = g.triangulate_2d(region)
+    out = []
+    for p in points:
+        best = None
+        for a, b, c in tris:
+            pa, pb, pc = region[a], region[b], region[c]
+            det = (pb[1] - pc[1]) * (pa[0] - pc[0]) + (pc[0] - pb[0]) * (pa[1] - pc[1])
+            if abs(det) < 1e-12:
+                continue
+            wa = ((pb[1] - pc[1]) * (p[0] - pc[0]) + (pc[0] - pb[0]) * (p[1] - pc[1])) / det
+            wb = ((pc[1] - pa[1]) * (p[0] - pc[0]) + (pa[0] - pc[0]) * (p[1] - pc[1])) / det
+            wc = 1.0 - wa - wb
+            worst = min(wa, wb, wc)
+            if best is None or worst > best[0]:
+                best = (worst, [(a, wa), (b, wb), (c, wc)])
+        out.append(best[1] if best else [(0, 1.0)])
+    return out
+
+
+def build_tabs(res, scale, tab_height, tab_angle_deg, flips=frozenset(), outer=frozenset()):
     """One tab per glued edge pair.
 
     * Tabs along one seam all go on the same piece (easier to assemble),
@@ -261,7 +289,8 @@ def build_tabs(res, scale, tab_height, tab_angle_deg, flips=frozenset()):
       sticks out past that face.
     * Tab sides lean to fit the free space at the corners; tabs shorten
       rather than run into neighbouring parts.
-    `flips`: edge keys whose tab side the user swapped."""
+    `flips`: edge keys whose tab side the user swapped.
+    `outer`: edge keys whose tab glues on the outside of the partner face."""
     angle = math.radians(max(15.0, min(89.0, tab_angle_deg)))
     eps = 1e-9
     margin = min(0.5, 0.1 * tab_height)
@@ -374,6 +403,16 @@ def build_tabs(res, scale, tab_height, tab_angle_deg, flips=frozenset()):
                         break
             if placed is None:
                 continue  # no room at all (tiny edge): leave it untabbed
+            # Remember the face it glues onto and how each corner maps onto
+            # it (outside tabs print that face's art; rigs fold with it).
+            fs, ks = placed.face, placed.corner
+            other = [u for u in res.edges[key].uses if u != (fs, ks)][0]
+            pts = mm[placed.island][fs]
+            region, _ = _partner_region(res, scale, other, pts[ks], pts[(ks + 1) % len(pts)])
+            placed.partner = other
+            placed.weights = partner_weights(region, placed.points)
+            placed.outer = key in outer
+            placed.angle = res.edges[key].angle
             obstacles[placed.island].append((placed.points, g.bbox(placed.points)))
             tabs.append(placed)
     tabs.sort(key=lambda t: t.number)
@@ -471,6 +510,7 @@ def compute_layout(
     tab_height=5.0,
     tab_angle=45.0,
     tab_flips=frozenset(),
+    tab_outer=frozenset(),
 ):
     """scale_mode:
     'FIT'    largest scale that fits on `max_pages` pages
@@ -519,7 +559,7 @@ def compute_layout(
     lay.scale = scale
 
     for attempt in range(12):
-        tabs = build_tabs(res, scale, tab_height, tab_angle, tab_flips)
+        tabs = build_tabs(res, scale, tab_height, tab_angle, tab_flips, tab_outer)
         tab_pts = {}
         for t in tabs:
             tab_pts.setdefault(t.island, []).extend(t.points)

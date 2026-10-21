@@ -31,7 +31,10 @@ like; selecting a layout or rig jumps to its model.
    to control where the model is cut; the pages update as you work.
 4. **Edit Cuts** (Pepakura style): hover an edge on the model *or* the
    paper layout and it lights up in both places; click to cut a fold or join
-   a cut. Click a tab to move it to the other side of its seam. Works across
+   a cut. Click a tab to move it to the other side of its seam;
+   **Shift+click** a tab to glue it on the *outside*: an outside tab is
+   printed with the art of the face it covers (in every print mode, the
+   layout preview and the fold rig) and carries no glue number. Works across
    split viewports. Right-click or Esc when done.
 5. **Fold Animation → Build Fold Rig**: a printed-side-up copy of the sheet
    appears in front of the layout. **Fold** folds each piece up and turns it
@@ -110,7 +113,8 @@ colour layers, so the model's materials preview correctly on the pages.
   on the same side, so a seam is glued in one direction; a tab only
   switches side where that side has no room.
 * Every tab is trimmed to the shape of the face it glues onto, so it never
-  sticks out past that face. Tab sides lean to fit the free space at each
+  sticks out past that face, and folds the same way that face does
+  (mountain or valley). Tab sides lean to fit the free space at each
   corner and tabs shorten rather than run into neighbouring pieces.
 
 ## Development
@@ -124,6 +128,7 @@ python tests/test_blender.py       # end-to-end, needs `pip install bpy`
 python tests/test_v02.py           # textures, line styles, cut rules, editor
 python tests/test_v03.py           # several models, rig rebuilds, baking
 python tests/test_v04.py           # cutting order, tab rules
+python tests/test_v05.py           # outside tabs, tab fold direction
 ```
 
 ## Roadmap

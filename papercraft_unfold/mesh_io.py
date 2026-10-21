@@ -9,12 +9,13 @@ import bpy
 
 JOIN_ATTR = "papercraft_join"  # INT on edges: user forced this edge to fold
 FLIP_ATTR = "papercraft_tab_flip"  # INT on edges: user flipped the tab side
+OUTER_ATTR = "papercraft_tab_outer"  # INT on edges: tab glues on the outside
 COLOR_TOLERANCE = 0.08
 
 
 class SourceData:
     __slots__ = (
-        "verts", "polys", "seams", "joins", "flips", "materials", "uvs", "colors",
+        "verts", "polys", "seams", "joins", "flips", "outer", "materials", "uvs", "colors",
         "mat_list", "images", "signature", "topology_ok", "rule_cuts", "face_colors",
         "user_seams", "uv_layers", "render_uv", "color_layers", "active_color",
         "image_uvs",
@@ -26,6 +27,7 @@ class SourceData:
         self.seams = []  # user seams + cuts from rules (materials, colours, sharp)
         self.joins = []
         self.flips = []
+        self.outer = []
         self.materials = []
         self.uvs = None  # per polygon list of (u, v) or None
         self.colors = []  # per material slot (r, g, b) or None
@@ -224,7 +226,8 @@ def read_object(obj, depsgraph, rules=None):
                 seams.append(key)
             if not e.smooth:
                 sharp.append(key)
-        for name, out in ((JOIN_ATTR, data.joins), (FLIP_ATTR, data.flips)):
+        for name, out in ((JOIN_ATTR, data.joins), (FLIP_ATTR, data.flips),
+                          (OUTER_ATTR, data.outer)):
             layer = bm.edges.layers.int.get(name)
             if layer is not None:
                 out.extend(
@@ -262,7 +265,8 @@ def read_object(obj, depsgraph, rules=None):
             sharp_attr = mesh.attributes.get("sharp_edge")
             if sharp_attr is not None and sharp_attr.domain == "EDGE":
                 sharp = [k for k, d in zip(edge_keys, sharp_attr.data) if d.value]
-            for name, out in ((JOIN_ATTR, data.joins), (FLIP_ATTR, data.flips)):
+            for name, out in ((JOIN_ATTR, data.joins), (FLIP_ATTR, data.flips),
+                              (OUTER_ATTR, data.outer)):
                 attr = mesh.attributes.get(name)
                 if attr is not None and attr.domain == "EDGE":
                     out.extend(k for k, d in zip(edge_keys, attr.data) if d.value)
@@ -294,7 +298,7 @@ def read_object(obj, depsgraph, rules=None):
     for p in data.polys:
         h.update(struct.pack(f"{len(p)}i", *p))
         h.update(b"|")
-    for group in (data.seams, data.joins, data.flips):
+    for group in (data.seams, data.joins, data.flips, data.outer):
         for s in group:
             h.update(struct.pack("2i", *s))
         h.update(b"#")

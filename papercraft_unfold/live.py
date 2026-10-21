@@ -87,6 +87,7 @@ def regenerate(scene, depsgraph, obj, force=False):
         tab_height=props.tab_height,
         tab_angle=props.tab_angle,
         tab_flips=frozenset((a, b) if a < b else (b, a) for a, b in src.flips),
+        tab_outer=frozenset((a, b) if a < b else (b, a) for a, b in src.outer),
     )
     _, poly_map, frame = build.build_layout(scene, obj, src, res, lay)
 
