@@ -11,10 +11,13 @@ Layers (Inkscape layers, so they can be toggled for print vs cut):
 
 Line styles:
   DEFAULT   black cuts, red mountain, blue valley
-  MULTIPLY  grey lines multiplied over the print (darker version of the art)
-  BURN      grey lines colour-burned into the print (richer, more saturated)
+  CUSTOM    one colour of your choice at a chosen opacity (e.g. white at
+            40% over dark art, black at 30% over light art)
   NONE      lines kept in the file but hidden (print art only; show the
             layers again in Inkscape for a cutting machine)
+
+Numbers: FACES (inside both edges), CLEAN (on the tab, and on the scrap
+just outside the other edge, so nothing prints on the art) or OFF.
 """
 
 import math
@@ -23,7 +26,8 @@ from xml.sax.saxutils import escape
 from . import geom as g
 from .unfold import KIND_CUT, KIND_FOLD, edge_key
 
-LINE_STYLES = ("DEFAULT", "MULTIPLY", "BURN", "NONE")
+LINE_STYLES = ("DEFAULT", "CUSTOM", "NONE")
+NUMBER_MODES = ("FACES", "CLEAN", "OFF")
 
 
 class Texture:
@@ -47,15 +51,13 @@ def _fmt(v):
     return f"{v:.3f}".rstrip("0").rstrip(".") or "0"
 
 
-def _line_styles(style, darkness, width):
+def _line_styles(style, width, color=(0.0, 0.0, 0.0), opacity=1.0):
     w = _fmt(width)
     dash_m = f"{_fmt(width * 12)},{_fmt(width * 4)},{_fmt(width * 2)},{_fmt(width * 4)}"
     dash_v = f"{_fmt(width * 6)},{_fmt(width * 4)}"
     base = f"fill:none;stroke-width:{w};stroke-linejoin:round;stroke-linecap:round"
-    if style in ("MULTIPLY", "BURN"):
-        grey = _hex((1.0 - darkness,) * 3)
-        blend = "multiply" if style == "MULTIPLY" else "color-burn"
-        extra = f";stroke:{grey};mix-blend-mode:{blend}"
+    if style == "CUSTOM":
+        extra = f";stroke:{_hex(color)};stroke-opacity:{_fmt(max(0.0, min(1.0, opacity)))}"
         return {
             "cut": base + extra,
             "mountain": base + extra + f";stroke-dasharray:{dash_m}",
@@ -81,7 +83,8 @@ def export_pages(
     textures=None,
     uvs=None,
     line_style="DEFAULT",
-    line_darkness=0.5,
+    line_color=(0.0, 0.0, 0.0),
+    line_opacity=1.0,
     line_width=0.25,
     fold_min_angle=1.0,
     bleed=0.2,
@@ -102,7 +105,11 @@ def export_pages(
     """
     H = lay.page_h
     min_fold = math.radians(max(0.0, fold_min_angle))
-    lines = _line_styles(line_style, line_darkness, line_width)
+    lines = _line_styles(line_style, line_width, line_color, line_opacity)
+    if numbers is True:
+        numbers = "FACES"
+    elif not numbers:
+        numbers = "OFF"
 
     def svgp(p):
         return (p[0], H - p[1])
@@ -199,6 +206,7 @@ def export_pages(
                         page["mountain" if info.angle > 0 else "valley"].append(line(a, b))
                     continue
                 tab = tab_on.get((f, k))
+                numbered = numbers != "OFF" and info.kind == KIND_CUT and info.number
                 if tab is not None:
                     tp = lay.tab_points(tab)
                     poly = f'<polygon points="{" ".join(pt(p) for p in tp)}"/>'
@@ -209,9 +217,14 @@ def export_pages(
                         f'<path d="M {pt(tp[0])} L {pt(tp[1])} L {pt(tp[2])} L {pt(tp[3])}"/>'
                     )
                     page["mountain"].append(line(a, b))  # tab folds behind
+                    if numbered and numbers == "CLEAN":
+                        tc = g.polygon_centroid(tp)
+                        page["numbers"].append(_number(a, b, info.number, H, at=tc, outward=True))
                 else:
                     page["cut"].append(line(a, b))
-                if numbers and info.kind == KIND_CUT and info.number:
+                    if numbered and numbers == "CLEAN":
+                        page["numbers"].append(_number(a, b, info.number, H, outside=True))
+                if numbered and numbers == "FACES":
                     page["numbers"].append(_number(a, b, info.number, H))
 
     docs = []
@@ -272,7 +285,12 @@ def export_pages(
     return docs
 
 
-def _number(a, b, number, page_h):
+def _number(a, b, number, page_h, at=None, outside=False, outward=False):
+    """Glue number along edge a->b of a CCW face.
+
+    default   just inside the face, reading from inside
+    outside   on the scrap just beyond the cut line
+    at        centred on a point (a tab), reading outwards"""
     d = g.sub2(b, a)
     length = g.len2(d)
     if length < 1e-6:
@@ -281,8 +299,18 @@ def _number(a, b, number, page_h):
     dn = g.mul2(d, 1.0 / length)
     inside = (-dn[1], dn[0])  # left of a->b is inside a CCW face
     mid = g.mul2(g.add2(a, b), 0.5)
-    pos = g.add2(mid, g.mul2(inside, size * 0.35))
     angle = math.degrees(math.atan2(dn[1], dn[0]))
+    if at is not None or outside:
+        # Read with "up" pointing away from the piece.
+        angle += 180.0
+        if at is not None:
+            # Baseline half a text-height "below" the tab centre.
+            pos = g.add2(at, g.mul2(inside, size * 0.35))
+        else:
+            # Baseline just outside the cut; text grows away from the piece.
+            pos = g.add2(mid, g.mul2(inside, -0.6))
+    else:
+        pos = g.add2(mid, g.mul2(inside, size * 0.35))
     x, y = pos[0], page_h - pos[1]
     return (
         f'<text x="{_fmt(x)}" y="{_fmt(y)}" text-anchor="middle" '

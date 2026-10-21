@@ -118,6 +118,46 @@ assert T.output(cube, T.ROLE_RIG) is None and T.output(cube, T.ROLE_FOLDING) is 
 assert T.output(ico, T.ROLE_RIG) is not None, "removing one rig touched the other"
 print("remove rig ok, other model untouched")
 
+# ------------------------------------------------------------ 2b. orientation
+activate(ico)
+entry_i = live.cached(ico)
+arm_i = T.output(ico, T.ROLE_RIG)
+fold_i = T.output(ico, T.ROLE_FOLDING)
+
+
+def rig_positions(fold, assemble):
+    arm_i["fold"], arm_i["assemble"] = fold, assemble
+    arm_i.update_tag()
+    evaluate()
+    ev = fold_i.evaluated_get(ctx.evaluated_depsgraph_get())
+    me = ev.to_mesh()
+    pos = [ev.matrix_world @ v.co for v in me.vertices]
+    normals = [ev.matrix_world.to_3x3() @ p.normal for p in me.polygons]
+    ev.to_mesh_clear()
+    return pos, normals
+
+
+pos, normals = rig_positions(0.0, 0.0)
+nfaces = sum(len(i.order) for i in entry_i.res.islands)
+up = sum(1 for n in normals[:nfaces] if n.z > 0.99)
+print(f"flat sheet: {up}/{nfaces} pieces printed side up")
+assert up == nfaces
+table = min(p.z for p in pos)
+pos, _ = rig_positions(1.0, 0.0)
+idx = 0
+for isl in entry_i.res.islands:
+    offs = []
+    for f in isl.order:
+        for v in entry_i.res.faces[f].loop:
+            offs.append(pos[idx] - Vector(entry_i.src.verts[v]))
+            idx += 1
+    spread = max((o - offs[0]).length for o in offs)
+    assert spread < 1e-4, f"folded island is not just a translated model ({spread})"
+low = min(p.z for p in pos[:idx])
+print(f"folded beside layout: upright (translation only), resting at table z {low - table:+.1e}")
+assert abs(low - table) < 1e-4
+arm_i["fold"], arm_i["assemble"] = 0.0, 0.0
+
 # ------------------------------------------------------------ 3. move layout
 lay_cube.location += Vector((3, -2, 0.5))
 loc = lay_cube.location.copy()
@@ -204,6 +244,30 @@ with open(f"{OUT}/image_mode_monkey_p1.svg", "w") as fh:
     fh.write(docs[0])
 assert ctx.mode == "OBJECT"
 print("bake + image modes ok; selection restored:", ctx.view_layer.objects.active.name)
+
+# ------------------------------------------------------------ 5. undo safety
+monkey.papercraft.texture_mode = "COLOR"
+bpy.ops.ed.undo_push(message="before")
+monkey.data.materials[0].name = "renamed"
+bpy.ops.ed.undo_push(message="after")
+monkey_name = monkey.name
+bpy.ops.ed.undo()
+monkey = bpy.data.objects[monkey_name]  # undo replaces every datablock
+activate(monkey)
+entry = live.get_or_build(ctx, monkey)
+docs = svg_documents(ctx, monkey, entry)
+print("export after undo ok:", len(docs), "page(s)")
+bpy.ops.ed.undo_push(message="touch")
+bpy.ops.ed.undo()
+monkey = bpy.data.objects[monkey_name]
+activate(monkey)
+pc = monkey.papercraft
+pc.texture_mode, pc.bake_dpi, pc.number_mode = "BAKE", 60, "CLEAN"
+pc.line_style, pc.line_color, pc.line_opacity = "CUSTOM", (1, 1, 1), 0.6
+docs = svg_documents(ctx, monkey, live.get_or_build(ctx, monkey))
+with open(f"{OUT}/after_undo_bake_p1.svg", "w") as fh:
+    fh.write(docs[0])
+print("bake after undo ok")
 
 addon.unregister()
 print("V03 OK")

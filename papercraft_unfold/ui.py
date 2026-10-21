@@ -123,6 +123,7 @@ class PAPERCRAFT_PT_pieces(_Child, bpy.types.Panel):
         props = T.target(context).papercraft
         col = layout.column()
         col.prop(props, "priority")
+        col.prop(props, "valley_bias")
         col.prop(props, "max_faces")
         col.separator()
         col.prop(props, "tab_height")
@@ -173,15 +174,16 @@ class PAPERCRAFT_PT_export(_Child, bpy.types.Panel):
         if props.texture_mode != "WHITE":
             col.prop(props, "bleed")
         col.separator()
+        col.prop(props, "number_mode")
+        col.separator()
         col.prop(props, "line_style")
-        sub = col.column()
-        sub.active = props.line_style in ("MULTIPLY", "BURN")
-        sub.prop(props, "line_darkness")
+        if props.line_style == "CUSTOM":
+            col.prop(props, "line_color")
+            col.prop(props, "line_opacity")
         sub = col.column()
         sub.active = props.line_style != "NONE"
         sub.prop(props, "line_width")
         sub.prop(props, "fold_min_angle")
-        col.prop(props, "numbers")
         layout.operator("papercraft.export_svg", icon="EXPORT")
 
 

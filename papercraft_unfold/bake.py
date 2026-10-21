@@ -116,7 +116,9 @@ def bake_pages(context, src_obj, entry, dpi=200, bake_pass="BASE", margin_mm=0.3
     # Materials used by the model, with a bake target node in each.
     slot_mats = []
     temp_mats = []
-    for m in src.mat_list or [None]:
+    # Read materials from the object now: cached references can be stale.
+    live_mats = [slot.material for slot in src_obj.material_slots]
+    for m in live_mats or [None]:
         if m is None or not m.use_nodes or m.node_tree is None:
             m = _fallback_material(m)
             temp_mats.append(m)

@@ -57,11 +57,17 @@ def regenerate(scene, depsgraph, obj, force=False):
         and entry.settings == settings
         and T.output(obj, T.ROLE_LAYOUT) is not None
     ):
+        # Datablock references go stale after undo/redo; always take the
+        # freshly read ones.
+        entry.src.mat_list = src.mat_list
+        entry.src.images = src.images
+        entry.src.colors = src.colors
         return entry
 
     res = unfold(
         src.verts, src.polys, src.seams, src.materials,
         priority=props.priority, max_faces=props.max_faces, joins=src.joins,
+        valley_bias=props.valley_bias,
     )
     page_w, page_h = props.page_size()
     value = {"FIT": 1.0, "HEIGHT": props.model_size_mm, "RATIO": props.ratio}[props.scale_mode]
@@ -152,14 +158,32 @@ def on_depsgraph_update(scene, depsgraph):
                 schedule(o)
 
 
+@persistent
+def on_data_reloaded(*_args):
+    """Undo, redo and file loads replace every datablock: drop cached
+    references so nothing touches a removed Material/Object."""
+    CACHE.clear()
+
+
+_RELOAD_HANDLERS = ("undo_post", "redo_post", "load_post")
+
+
 def register():
     if on_depsgraph_update not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(on_depsgraph_update)
+    for name in _RELOAD_HANDLERS:
+        handlers = getattr(bpy.app.handlers, name)
+        if on_data_reloaded not in handlers:
+            handlers.append(on_data_reloaded)
 
 
 def unregister():
     if on_depsgraph_update in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(on_depsgraph_update)
+    for name in _RELOAD_HANDLERS:
+        handlers = getattr(bpy.app.handlers, name)
+        if on_data_reloaded in handlers:
+            handlers.remove(on_data_reloaded)
     if bpy.app.timers.is_registered(_run):
         bpy.app.timers.unregister(_run)
     _state["scheduled"] = False

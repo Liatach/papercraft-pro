@@ -79,9 +79,15 @@ bpy.ops.mesh.primitive_cube_add(location=(4, 0, 0))
 cube = bpy.context.active_object
 cube.data.materials.append(textured_material("file_mat", img_file))
 entry = unfold(cube, pages=1)
-for style in ("DEFAULT", "MULTIPLY", "BURN", "NONE"):
-    docs = export(entry, f"tex_cube_{style.lower()}", line_style=style, line_darkness=0.5)
-assert "mix-blend-mode:color-burn" in open(f"{OUT}/tex_cube_burn_p1.svg").read()
+for style in ("DEFAULT", "CUSTOM", "NONE"):
+    docs = export(entry, f"tex_cube_{style.lower()}", line_style=style,
+                  line_color=(1, 1, 1), line_opacity=0.4)
+assert "stroke:#ffffff;stroke-opacity:0.4" in open(f"{OUT}/tex_cube_custom_p1.svg").read()
+assert "mix-blend-mode" not in open(f"{OUT}/tex_cube_custom_p1.svg").read()
+for mode in ("FACES", "CLEAN", "OFF"):
+    docs = export(entry, f"numbers_{mode.lower()}", numbers=mode)
+    print("numbers", mode, docs[0].count("<text") - 1)
+assert open(f"{OUT}/numbers_off_p1.svg").read().count("<text") == 1  # footer only
 assert "display:none" in open(f"{OUT}/tex_cube_none_p1.svg").read()
 print("cube file texture + line styles ok")
 

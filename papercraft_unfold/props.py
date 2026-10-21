@@ -4,6 +4,7 @@ from bpy.props import (
     BoolProperty,
     EnumProperty,
     FloatProperty,
+    FloatVectorProperty,
     IntProperty,
     PointerProperty,
     StringProperty,
@@ -64,6 +65,12 @@ class PapercraftSettings(bpy.types.PropertyGroup):
         ],
         default="flat",
         update=_changed,
+    )
+    valley_bias: FloatProperty(
+        name="Prefer Valley Cuts", default=0.5, min=0.0, max=1.0, subtype="FACTOR",
+        update=_changed,
+        description="Put cuts on valley (inward) edges where possible: seams hide in "
+        "the creases and mountain ridges stay crisp. 0 = cut wherever is sharpest",
     )
     max_faces: IntProperty(
         name="Max Faces per Piece",
@@ -157,7 +164,17 @@ class PapercraftSettings(bpy.types.PropertyGroup):
         description="Continue the neighbouring face's art onto the tabs, so small gaps "
         "at glued seams don't show the tab colour (baked mode)",
     )
-    numbers: BoolProperty(name="Edge Numbers", default=True)
+    number_mode: EnumProperty(
+        name="Numbers",
+        items=[
+            ("FACES", "On Faces", "Matching numbers just inside both glued edges"),
+            ("CLEAN", "Tabs & Scrap",
+             "Number on the tab, and on the scrap just outside the other edge: "
+             "nothing printed on the art"),
+            ("OFF", "Off", "No glue numbers"),
+        ],
+        default="FACES",
+    )
     texture_max: IntProperty(
         name="Max Texture Size", default=2048, min=128, max=16384,
         description="Larger images are downsampled to this many pixels when embedded",
@@ -171,15 +188,18 @@ class PapercraftSettings(bpy.types.PropertyGroup):
         name="Lines",
         items=[
             ("DEFAULT", "Default", "Black cuts, red mountain folds, blue valley folds"),
-            ("MULTIPLY", "Multiply", "Grey lines multiplied over the print: a darker shade of the art"),
-            ("BURN", "Colour Burn", "Lines burned into the print: darker and more saturated"),
+            ("CUSTOM", "Custom Colour",
+             "All lines in one colour and opacity, e.g. white over dark art or soft black over light art"),
             ("NONE", "No Lines", "Print the art only (lines stay in the file as hidden layers)"),
         ],
         default="DEFAULT",
     )
-    line_darkness: FloatProperty(
-        name="Line Strength", default=0.45, min=0.05, max=1.0, subtype="FACTOR",
-        description="How dark Multiply / Colour Burn lines are",
+    line_color: FloatVectorProperty(
+        name="Line Colour", subtype="COLOR", size=3, min=0.0, max=1.0,
+        default=(0.0, 0.0, 0.0),
+    )
+    line_opacity: FloatProperty(
+        name="Line Opacity", default=0.5, min=0.0, max=1.0, subtype="FACTOR",
     )
     line_width: FloatProperty(name="Line Width", default=0.25, min=0.05, max=2.0)
     fold_min_angle: FloatProperty(
@@ -205,7 +225,7 @@ class PapercraftSettings(bpy.types.PropertyGroup):
 
     def settings_key(self):
         return (
-            self.priority, self.max_faces, self.page_size(), self.margin, self.spacing,
+            self.priority, self.valley_bias, self.max_faces, self.page_size(), self.margin, self.spacing,
             self.scale_mode, self.pages, self.model_size_mm, self.ratio,
             self.tab_height, self.tab_angle,
             self.cut_seams, self.cut_materials, self.cut_colors, self.cut_sharp,

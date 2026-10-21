@@ -63,12 +63,12 @@ class PageFrame:
         return self.matrix @ self.to_local(page, p, lift)
 
     def to_rig(self, page, p, matrix=None):
-        """Same piece, turned printed-side-down on the table in front of the
-        layout (a 180 degree turn, not a mirror) so folds rise upwards."""
+        """The rig's sheet: same layout, printed side up, laid on the table
+        just in front of the layout so the two don't overlap."""
         v = self.to_local(page, p)
         h = self.page_h * self.unit
-        flipped = Vector((v.x, h - v.y - h * 1.1, -v.z))
-        return (matrix if matrix is not None else self.matrix) @ flipped
+        shifted = Vector((v.x, v.y - h * 1.1, v.z))
+        return (matrix if matrix is not None else self.matrix) @ shifted
 
 
 def default_layout_location(verts, lay):
@@ -421,23 +421,42 @@ def build_rig(context, src_obj, entry, include_tabs=True):
         pb.rotation_mode = "XYZ"
         _add_driver(pb, "rotation_euler", 1, arm, "fold", angle)
 
+    # Root bones: two Copy Transforms per piece.
+    #   "Folded" (influence = fold): turn the piece into the model's own
+    #   orientation, resting on the table above where it lay, so the folded
+    #   model stands the right way up beside the layout.
+    #   "Assembled" (influence = assemble): slide it into place on the model.
+    table_z = (layout_matrix @ Vector((0.0, 0.0, 0.0))).z
     for name, isl in roots:
         f = isl.root
         face = res.faces[f]
         model_pts = [Vector(src.verts[v]) for v in face.loop]
         k = _best_corner(model_pts)
         M = _frame_from_points(model_pts, k) @ _frame_from_points(world_pts[f], k).inverted()
-        target = bpy.data.objects.new(f"{src_obj.name} Target {isl.index}", None)
-        T.tag(target, T.ROLE_TARGET, src_obj)
-        target.empty_display_type = "PLAIN_AXES"
-        target.empty_display_size = 0.0
-        target.hide_select = True
-        coll.objects.link(target)
-        target.matrix_world = M @ rest[name]
-        con = arm.pose.bones[name].constraints.new("COPY_TRANSFORMS")
-        con.target = target
-        con.influence = 0.0
-        _add_driver(con, "influence", -1, arm, "assemble", 1.0)
+        island_model = [Vector(src.verts[v]) for g in isl.faces for v in res.faces[g].loop]
+        island_sheet = [p for g in isl.faces for p in world_pts[g]]
+        lo = Vector((min(p.x for p in island_model), min(p.y for p in island_model),
+                     min(p.z for p in island_model)))
+        hi = Vector((max(p.x for p in island_model), max(p.y for p in island_model), 0.0))
+        sheet_c = sum(island_sheet, Vector()) / len(island_sheet)
+        offset = Vector((sheet_c.x - (lo.x + hi.x) / 2, sheet_c.y - (lo.y + hi.y) / 2,
+                         table_z - lo.z))
+        for label, matrix, prop in (
+            ("Folded", Matrix.Translation(offset) @ M, "fold"),
+            ("Assembled", M, "assemble"),
+        ):
+            target = bpy.data.objects.new(f"{src_obj.name} {label} {isl.index}", None)
+            T.tag(target, T.ROLE_TARGET, src_obj)
+            target.empty_display_type = "PLAIN_AXES"
+            target.empty_display_size = 0.0
+            target.hide_select = True
+            coll.objects.link(target)
+            target.matrix_world = matrix @ rest[name]
+            con = arm.pose.bones[name].constraints.new("COPY_TRANSFORMS")
+            con.name = label
+            con.target = target
+            con.influence = 0.0
+            _add_driver(con, "influence", -1, arm, prop, 1.0)
 
     verts, faces, groups, mat_idx, corners = [], [], [], [], []
     for isl in res.islands:

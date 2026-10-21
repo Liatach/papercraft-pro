@@ -23,6 +23,7 @@ from . import geom as g
 KIND_FOLD = "fold"
 KIND_CUT = "cut"  # glued to a partner edge somewhere else
 KIND_BOUNDARY = "boundary"  # open mesh edge, nothing to glue to
+VALLEY_MIN = math.radians(0.5)  # flatter than this is neither mountain nor valley
 
 
 class Face:
@@ -191,7 +192,7 @@ def _triangulate(points):
 
 def unfold(
     verts, polygons, seams=(), materials=None, priority="flat", max_faces=0,
-    planar_tolerance=0.002, joins=(),
+    planar_tolerance=0.002, joins=(), valley_bias=0.5,
 ):
     """Unfold a mesh.
 
@@ -207,6 +208,9 @@ def unfold(
                their size are split into triangles (paper cannot bend)
     joins      (a, b) pairs the user wants kept folded; they are tried first
                and only cut if joining would make pieces overlap
+    valley_bias  0..1: how strongly cuts prefer valley (concave) edges, where
+               seams hide in creases and mountain ridges stay crisp. A valley
+               is treated as if it were up to 90 degrees sharper.
     """
     res = UnfoldResult()
     res.verts = list(verts)
@@ -282,10 +286,13 @@ def unfold(
             continue
         length = g.len3(g.sub3(res.verts[aj], res.verts[ai]))
         forced = 0 if key in join_keys else 1
+        is_valley = info.angle < -VALLEY_MIN
         if priority == "long":
-            weight = (forced, -length, abs(info.angle))
+            eff_len = length * (1.0 - 0.5 * valley_bias) if is_valley else length
+            weight = (forced, -eff_len, abs(info.angle))
         else:
-            weight = (forced, round(abs(info.angle), 4), -length)
+            eff = abs(info.angle) + (valley_bias * math.pi / 2 if is_valley else 0.0)
+            weight = (forced, round(eff, 4), -length)
         candidates.append((weight, key))
     if flipped:
         res.warnings.append(

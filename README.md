@@ -31,8 +31,10 @@ like; selecting a layout or rig jumps to its model.
    paper layout and it lights up in both places; click to cut a fold or join
    a cut. Click a tab to move it to the other side of its seam. Works across
    split viewports. Right-click or Esc when done.
-5. **Fold Animation → Build Fold Rig**, then drive **Fold** and **Assemble**
-   or press **Keyframe Fold Animation**. If you change cuts or tabs later
+5. **Fold Animation → Build Fold Rig**: a printed-side-up copy of the sheet
+   appears in front of the layout. **Fold** folds each piece up and turns it
+   the right way up, standing beside the layout; **Assemble** slides the
+   pieces onto the model. **Keyframe Fold Animation** animates both. If you change cuts or tabs later
    the panel shows *Rig is out of date*; **Rebuild Rig** keeps your
    keyframes (Edit Cuts rebuilds it for you when you finish). The bin icon
    removes the rig; **Remove Papercraft** (bin by the model name) removes
@@ -63,10 +65,14 @@ A *Join* made with Edit Cuts overrides a material/colour/sharp cut.
 * **Flat Colours** / **Lines Only** for quick tests and cutting machines.
 * **Bleed**: colour runs a little past each edge so imperfect cuts don't
   show white.
-* **Lines**: *Default* (black cut, red mountain, blue valley), *Multiply*
-  (grey lines multiplied into the art), *Colour Burn* (lines burned into the
-  art), or *No Lines* (hidden layers, still there for a cutting machine).
-  *Line Strength*, *Line Width* and *Hide Folds Under N°* fine-tune it.
+* **Numbers**: *On Faces* (inside both glued edges), *Tabs & Scrap* (on
+  the tab, and on the scrap just outside the other edge, so nothing prints
+  on the art), or *Off*.
+* **Lines**: *Default* (black cut, red mountain, blue valley), *Custom
+  Colour* (one colour and opacity for every line, e.g. white at 40% over
+  dark art or black at 30% over light art), or *No Lines* (hidden layers,
+  still there for a cutting machine). *Line Width* and *Hide Folds Under N°*
+  fine-tune it.
 
 The layout and folding meshes carry copies of all the model's UV maps and
 colour layers, so the model's materials preview correctly on the pages.
@@ -81,6 +87,9 @@ colour layers, so the model's materials preview correctly on the pages.
 
 * Faces are flattened and joined greedily across the flattest edges first;
   a join is refused if pieces would overlap, and that edge becomes a cut.
+* **Prefer Valley Cuts** (Pieces & Tabs, default 0.5) steers cuts onto
+  inward (valley) edges, where seams hide in the creases and mountain ridges
+  stay crisp; 0 cuts wherever is sharpest.
 * Faces bent out of plane are split into triangles (paper cannot bend).
 * Each piece keeps a hinge tree (parent face, hinge edge, fold angle). The
   rig turns each hinge into a bone whose Y axis lies on the fold, driven by a
