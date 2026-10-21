@@ -97,6 +97,7 @@ def build_layout(scene, src, res, lay, name="Papercraft Layout"):
         mat_idx.append(mat)
         uvs.append(uv if uv else [(0.0, 0.0)] * len(points))
 
+    poly_map = []  # layout polygon -> ("page", n) | ("tab", i) | ("face", f)
     for page in range(max(lay.page_count, 1)):
         add_poly(
             [(0, 0), (lay.page_w, 0), (lay.page_w, lay.page_h), (0, lay.page_h)],
@@ -104,9 +105,11 @@ def build_layout(scene, src, res, lay, name="Papercraft Layout"):
             0.0,
             0,
         )
-    for tab in lay.tabs:
+        poly_map.append(("page", page))
+    for n, tab in enumerate(lay.tabs):
         place = lay.placements[tab.island]
         add_poly(lay.tab_points(tab), place.page, 0.05, 2 if tab.squashed else 1)
+        poly_map.append(("tab", n))
     for isl in res.islands:
         place = lay.placements[isl.index]
         for f in isl.order:
@@ -119,6 +122,7 @@ def build_layout(scene, src, res, lay, name="Papercraft Layout"):
                 slot_of_src.get(face.material, 0),
                 uv,
             )
+            poly_map.append(("face", f))
 
     mesh.from_pydata(verts, [], faces)
     for m in mats:
@@ -131,7 +135,7 @@ def build_layout(scene, src, res, lay, name="Papercraft Layout"):
     obj.show_wire = True
     obj.show_all_edges = True
     obj["papercraft_source"] = src_name_hint(scene)
-    return obj
+    return obj, poly_map, frame
 
 
 def src_name_hint(scene):

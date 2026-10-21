@@ -246,3 +246,69 @@ def min_area_rect_angle(points):
         if area < best_area - EPS:
             best_area, best_angle = area, angle
     return best_angle
+
+
+def triangulate_2d(poly):
+    """Ear-clipping triangulation of a simple polygon (either winding).
+    Returns corner-index triples."""
+    count = len(poly)
+    if count < 3:
+        return []
+    if count == 3:
+        return [(0, 1, 2)]
+    sign = 1.0 if polygon_area(poly) >= 0 else -1.0
+    idx = list(range(count))
+    tris = []
+    guard = 0
+    while len(idx) > 3 and guard < count * count:
+        guard += 1
+        m = len(idx)
+        for k in range(m):
+            a, b, c = idx[k - 1], idx[k], idx[(k + 1) % m]
+            if sign * cross2(sub2(poly[b], poly[a]), sub2(poly[c], poly[a])) <= 0:
+                continue  # reflex or degenerate corner
+            tri = [poly[a], poly[b], poly[c]]
+            if any(point_in_polygon(poly[o], tri) for o in idx if o not in (a, b, c)):
+                continue
+            tris.append((a, b, c))
+            idx.pop(k)
+            break
+        else:
+            break
+    if len(idx) >= 3:
+        for k in range(1, len(idx) - 1):
+            tris.append((idx[0], idx[k], idx[k + 1]))
+    return tris
+
+
+def affine_from_triangles(src, dst):
+    """2x3 affine (a, b, c, d, e, f) mapping triangle src onto dst, in SVG
+    matrix order: x' = a*x + c*y + e, y' = b*x + d*y + f. None if degenerate."""
+    (x0, y0), (x1, y1), (x2, y2) = src
+    det = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)
+    if abs(det) < 1e-12:
+        return None
+    (u0, v0), (u1, v1), (u2, v2) = dst
+    a = ((u1 - u0) * (y2 - y0) - (u2 - u0) * (y1 - y0)) / det
+    c = ((u2 - u0) * (x1 - x0) - (u1 - u0) * (x2 - x0)) / det
+    b = ((v1 - v0) * (y2 - y0) - (v2 - v0) * (y1 - y0)) / det
+    d = ((v2 - v0) * (x1 - x0) - (v1 - v0) * (x2 - x0)) / det
+    e = u0 - a * x0 - c * y0
+    f = v0 - b * x0 - d * y0
+    return (a, b, c, d, e, f)
+
+
+def grow_triangle(tri, amount):
+    """Push each corner of a triangle outwards so its edges move out by
+    roughly `amount` (used for print bleed)."""
+    cx = (tri[0][0] + tri[1][0] + tri[2][0]) / 3.0
+    cy = (tri[0][1] + tri[1][1] + tri[2][1]) / 3.0
+    out = []
+    for p in tri:
+        d = (p[0] - cx, p[1] - cy)
+        length = len2(d)
+        if length < EPS:
+            out.append(p)
+            continue
+        out.append((p[0] + d[0] / length * amount * 2.0, p[1] + d[1] / length * amount * 2.0))
+    return out

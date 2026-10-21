@@ -191,7 +191,7 @@ def _triangulate(points):
 
 def unfold(
     verts, polygons, seams=(), materials=None, priority="flat", max_faces=0,
-    planar_tolerance=0.002,
+    planar_tolerance=0.002, joins=(),
 ):
     """Unfold a mesh.
 
@@ -205,10 +205,13 @@ def unfold(
                more room for tabs on round models
     planar_tolerance  faces bent out of plane by more than this fraction of
                their size are split into triangles (paper cannot bend)
+    joins      (a, b) pairs the user wants kept folded; they are tried first
+               and only cut if joining would make pieces overlap
     """
     res = UnfoldResult()
     res.verts = list(verts)
     seam_keys = {edge_key(a, b) for a, b in seams}
+    join_keys = {edge_key(a, b) for a, b in joins} - seam_keys
 
     # Size-relative tolerances.
     if verts:
@@ -278,10 +281,11 @@ def unfold(
             info.forced_cut = True
             continue
         length = g.len3(g.sub3(res.verts[aj], res.verts[ai]))
+        forced = 0 if key in join_keys else 1
         if priority == "long":
-            weight = (-length, abs(info.angle))
+            weight = (forced, -length, abs(info.angle))
         else:
-            weight = (round(abs(info.angle), 4), -length)
+            weight = (forced, round(abs(info.angle), 4), -length)
         candidates.append((weight, key))
     if flipped:
         res.warnings.append(
@@ -330,6 +334,12 @@ def unfold(
         for f in IB.faces:
             island_of[f] = IA
         info.kind = KIND_FOLD
+
+    refused = sum(
+        1 for k in join_keys if k in res.edges and res.edges[k].kind != KIND_FOLD
+    )
+    if refused:
+        res.warnings.append(f"{refused} joined edge(s) had to stay cut (pieces would overlap)")
 
     # 4. Hinge trees
     unique = []

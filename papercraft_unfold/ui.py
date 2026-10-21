@@ -19,7 +19,9 @@ class PAPERCRAFT_PT_main(bpy.types.Panel):
         row.scale_y = 1.4
         row.operator("papercraft.unfold", icon="MOD_UVPROJECT")
         row.prop(props, "live", text="", icon="FILE_REFRESH", toggle=True)
-        layout.operator("papercraft.frame_layout", icon="VIEW_ORTHO")
+        row = layout.row(align=True)
+        row.operator("papercraft.frame_layout", icon="VIEW_ORTHO")
+        row.operator("papercraft.edit_cuts", icon="SCULPTMODE_HLT")
 
         if props.info_islands:
             box = layout.box()
@@ -42,6 +44,24 @@ class PAPERCRAFT_PT_main(bpy.types.Panel):
             row.operator("mesh.mark_seam", text="Join").clear = True
             if not props.live:
                 box.label(text="Turn on Live Layout to see changes", icon="INFO")
+
+
+class PAPERCRAFT_PT_cuts(bpy.types.Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Papercraft"
+    bl_label = "Cut Along"
+    bl_parent_id = "PAPERCRAFT_PT_main"
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.papercraft
+        col = layout.column(align=True)
+        col.prop(props, "cut_seams")
+        col.prop(props, "cut_materials")
+        col.prop(props, "cut_colors")
+        col.prop(props, "cut_sharp")
+        layout.operator("papercraft.edit_cuts", text="Click to Cut / Join", icon="SCULPTMODE_HLT")
 
 
 class PAPERCRAFT_PT_paper(bpy.types.Panel):
@@ -123,15 +143,34 @@ class PAPERCRAFT_PT_export(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
         props = context.scene.papercraft
-        col = layout.column(align=True)
+        col = layout.column()
         col.prop(props, "fill_faces")
+        sub = col.column()
+        sub.active = props.fill_faces
+        sub.prop(props, "print_textures")
+        sub2 = sub.column()
+        sub2.active = props.print_textures
+        sub2.prop(props, "texture_max")
+        sub.prop(props, "bleed")
+        col.separator()
+        col.prop(props, "line_style")
+        sub = col.column()
+        sub.active = props.line_style in ("MULTIPLY", "BURN")
+        sub.prop(props, "line_darkness")
+        sub = col.column()
+        sub.active = props.line_style != "NONE"
+        sub.prop(props, "line_width")
+        sub.prop(props, "fold_min_angle")
         col.prop(props, "numbers")
         layout.operator("papercraft.export_svg", icon="EXPORT")
 
 
 classes = (
     PAPERCRAFT_PT_main,
+    PAPERCRAFT_PT_cuts,
     PAPERCRAFT_PT_paper,
     PAPERCRAFT_PT_pieces,
     PAPERCRAFT_PT_animate,

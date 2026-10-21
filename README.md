@@ -27,6 +27,34 @@ By Kim Lang / Liatach Makes. Written from scratch; GPL-3.0-or-later.
 5. **Fold Animation → Build Fold Rig**, then drive **Fold** and **Assemble**
    or press **Keyframe Fold Animation**.
 
+6. **Edit Cuts** (Pepakura style): hover an edge on the model *or* the
+   paper layout and it lights up in both places; click to cut a fold or join
+   a cut. Click a tab to move it to the other side of its seam. Works across
+   split viewports. Right-click or Esc when done.
+
+### Cut along
+
+* **Seams**: Blender seams (Edit Mode: *Cut Here / Join*, or Edit Cuts).
+* **Material Boundaries**: each material becomes its own piece.
+* **Colour Boundaries**: paint regions in Vertex Paint mode (or any colour
+  attribute) and every colour change becomes a cut.
+* **Sharp Edges**: edges marked Sharp.
+
+A *Join* made with Edit Cuts overrides a material/colour/sharp cut.
+
+### Printing
+
+* **Print Textures**: image textures feeding Base Color are printed through
+  the model's render UV map (tiling supported), embedded in each SVG.
+  PNG/JPEG files are embedded as-is; other images are encoded and
+  downsampled to *Max Texture Size*.
+* **Bleed**: colour runs a little past each edge so imperfect cuts don't
+  show white.
+* **Lines**: *Default* (black cut, red mountain, blue valley), *Multiply*
+  (grey lines multiplied into the art), *Colour Burn* (lines burned into the
+  art), or *No Lines* (hidden layers, still there for a cutting machine).
+  *Line Strength*, *Line Width* and *Hide Folds Under N°* fine-tune it.
+
 ### Scale options
 
 * **Fit to Pages**: largest model that fits on N pages.
@@ -52,9 +80,11 @@ outside Blender:
 ```bash
 python tests/test_core.py          # unfold, refold and layout checks
 python tests/test_blender.py       # end-to-end, needs `pip install bpy`
+python tests/test_v02.py           # textures, line styles, cut rules, editor
 ```
 
 ## Roadmap
 
-* Texture printing, colour-based cuts, click-to-cut editing, print line styles
+* Drag pieces around the page; PDF export
+* Bake procedural materials to a texture for printing
 * Pop-up mechanism design add-on built on the same hinge rig

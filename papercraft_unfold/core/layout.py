@@ -133,8 +133,9 @@ def _overlaps_any(poly, others, eps):
     return False
 
 
-def build_tabs(res, scale, tab_height, tab_angle_deg):
-    """One tab per glued edge pair, on whichever side has room."""
+def build_tabs(res, scale, tab_height, tab_angle_deg, flips=frozenset()):
+    """One tab per glued edge pair, on whichever side has room.
+    `flips`: edge keys whose preferred tab side is swapped by the user."""
     angle = math.radians(max(15.0, min(89.0, tab_angle_deg)))
     eps = 1e-9
     shrinks = (1.0, 0.75, 0.5, 0.35, 0.25)
@@ -164,6 +165,8 @@ def build_tabs(res, scale, tab_height, tab_angle_deg):
                 sides = list(info.uses)
                 # Alternate the preferred side so tabs spread around a seam.
                 if info.number % 2:
+                    sides.reverse()
+                if key in flips:
                     sides.reverse()
                 placed = None
                 # Fit the side angles to the free space at each corner, then
@@ -290,6 +293,7 @@ def compute_layout(
     max_pages=1,
     tab_height=5.0,
     tab_angle=45.0,
+    tab_flips=frozenset(),
 ):
     """scale_mode:
     'FIT'    largest scale that fits on `max_pages` pages
@@ -338,7 +342,7 @@ def compute_layout(
     lay.scale = scale
 
     for attempt in range(12):
-        tabs = build_tabs(res, scale, tab_height, tab_angle)
+        tabs = build_tabs(res, scale, tab_height, tab_angle, tab_flips)
         tab_pts = {}
         for t in tabs:
             tab_pts.setdefault(t.island, []).extend(t.points)
@@ -398,7 +402,7 @@ def compute_layout(
         lay.fits = False
     squashed = sum(1 for t in tabs if t.squashed)
     if squashed:
-        lay.messages.append(f"{squashed} tab(s) overlap other parts; check them before cutting")
+        lay.messages.append(f"{squashed} tab(s) touch a neighbouring piece (red on the layout)")
     return lay
 
 

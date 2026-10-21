@@ -15,14 +15,16 @@ DEBOUNCE_S = 0.35
 
 
 class CacheEntry:
-    __slots__ = ("signature", "settings", "src", "res", "lay")
+    __slots__ = ("signature", "settings", "src", "res", "lay", "poly_map", "frame")
 
-    def __init__(self, signature, settings, src, res, lay):
+    def __init__(self, signature, settings, src, res, lay, poly_map=None, frame=None):
         self.signature = signature
         self.settings = settings
         self.src = src
         self.res = res
         self.lay = lay
+        self.poly_map = poly_map or []
+        self.frame = frame
 
 
 CACHE = {}  # scene name -> CacheEntry
@@ -35,7 +37,7 @@ def regenerate(scene, depsgraph, force=False):
     if obj is None or obj.name not in scene.objects:
         props.info_message = "Pick a mesh to unfold"
         return None
-    src = read_object(obj, depsgraph)
+    src = read_object(obj, depsgraph, props.cut_rules())
     settings = props.settings_key()
     cached = CACHE.get(scene.name)
     if (
@@ -48,7 +50,7 @@ def regenerate(scene, depsgraph, force=False):
 
     res = unfold(
         src.verts, src.polys, src.seams, src.materials,
-        priority=props.priority, max_faces=props.max_faces,
+        priority=props.priority, max_faces=props.max_faces, joins=src.joins,
     )
     page_w, page_h = props.page_size()
     value = {"FIT": 1.0, "HEIGHT": props.model_size_mm, "RATIO": props.ratio}[props.scale_mode]
@@ -63,8 +65,9 @@ def regenerate(scene, depsgraph, force=False):
         max_pages=props.pages,
         tab_height=props.tab_height,
         tab_angle=props.tab_angle,
+        tab_flips=frozenset((a, b) if a < b else (b, a) for a, b in src.flips),
     )
-    build.build_layout(scene, src, res, lay)
+    _, poly_map, frame = build.build_layout(scene, src, res, lay)
 
     props.info_islands = len(res.islands)
     props.info_pages = lay.page_count
@@ -74,7 +77,12 @@ def regenerate(scene, depsgraph, force=False):
     props.info_glue = res.glue_count
     props.info_fits = lay.fits
     props.info_message = "; ".join(res.warnings + lay.messages)
-    entry = CacheEntry(src.signature, settings, src, res, lay)
+    if src.rule_cuts:
+        props.info_message = "; ".join(
+            [f"{src.rule_cuts} cut(s) from colour/material/sharp rules"]
+            + ([props.info_message] if props.info_message else [])
+        )
+    entry = CacheEntry(src.signature, settings, src, res, lay, poly_map, frame)
     CACHE[scene.name] = entry
     return entry
 

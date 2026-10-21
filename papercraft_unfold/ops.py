@@ -7,6 +7,7 @@ from bpy_extras.io_utils import ExportHelper
 
 from . import build, live
 from .core.svg import export_pages
+from .textures import textures_for
 
 
 def _need_source(context):
@@ -155,6 +156,9 @@ class PAPERCRAFT_OT_export_svg(bpy.types.Operator, ExportHelper):
         if entry is None:
             return {"CANCELLED"}
         props = context.scene.papercraft
+        textures = None
+        if props.fill_faces and props.print_textures:
+            textures = textures_for(entry.src.images, props.texture_max)
         docs = export_pages(
             entry.res,
             entry.lay,
@@ -162,6 +166,13 @@ class PAPERCRAFT_OT_export_svg(bpy.types.Operator, ExportHelper):
             fill_faces=props.fill_faces,
             numbers=props.numbers,
             title=props.source.name,
+            textures=textures,
+            uvs=entry.src.uvs,
+            line_style=props.line_style,
+            line_darkness=props.line_darkness,
+            line_width=props.line_width,
+            fold_min_angle=props.fold_min_angle,
+            bleed=props.bleed,
         )
         base, ext = os.path.splitext(self.filepath)
         written = []
