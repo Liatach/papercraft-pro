@@ -1,19 +1,42 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import bpy
 
+from . import build, live
+from . import targets as T
 
-class PAPERCRAFT_PT_main(bpy.types.Panel):
+
+class _Base:
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Papercraft"
+
+
+class _Child(_Base):
+    bl_parent_id = "PAPERCRAFT_PT_main"
+
+    @classmethod
+    def poll(cls, context):
+        return T.target(context) is not None
+
+
+class PAPERCRAFT_PT_main(_Base, bpy.types.Panel):
     bl_label = "Papercraft Unfold"
 
     def draw(self, context):
         layout = self.layout
-        props = context.scene.papercraft
-        row = layout.row(align=True)
-        row.prop(props, "source", text="")
-        row.operator("papercraft.use_active", text="", icon="EYEDROPPER")
+        obj = T.target(context)
+        if obj is None:
+            layout.label(text="Select a mesh to unfold", icon="INFO")
+            others = T.sources(context.scene)
+            if others:
+                layout.label(text=f"{len(others)} model(s) unfolded in this scene")
+            return
+        props = obj.papercraft
+        box = layout.box()
+        row = box.row()
+        row.label(text=obj.name, icon="MESH_DATA")
+        if props.role == T.ROLE_SOURCE:
+            row.operator("papercraft.clear", text="", icon="TRASH")
 
         row = layout.row(align=True)
         row.scale_y = 1.4
@@ -23,7 +46,7 @@ class PAPERCRAFT_PT_main(bpy.types.Panel):
         row.operator("papercraft.frame_layout", icon="VIEW_ORTHO")
         row.operator("papercraft.edit_cuts", icon="SCULPTMODE_HLT")
 
-        if props.info_islands:
+        if props.role == T.ROLE_SOURCE and props.info_islands:
             box = layout.box()
             col = box.column(align=True)
             col.label(text=f"{props.info_islands} piece(s), {props.info_glue} glue edges")
@@ -46,36 +69,28 @@ class PAPERCRAFT_PT_main(bpy.types.Panel):
                 box.label(text="Turn on Live Layout to see changes", icon="INFO")
 
 
-class PAPERCRAFT_PT_cuts(bpy.types.Panel):
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "Papercraft"
+class PAPERCRAFT_PT_cuts(_Child, bpy.types.Panel):
     bl_label = "Cut Along"
-    bl_parent_id = "PAPERCRAFT_PT_main"
 
     def draw(self, context):
         layout = self.layout
-        props = context.scene.papercraft
+        props = T.target(context).papercraft
         col = layout.column(align=True)
         col.prop(props, "cut_seams")
         col.prop(props, "cut_materials")
         col.prop(props, "cut_colors")
         col.prop(props, "cut_sharp")
-        layout.operator("papercraft.edit_cuts", text="Click to Cut / Join", icon="SCULPTMODE_HLT")
 
 
-class PAPERCRAFT_PT_paper(bpy.types.Panel):
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "Papercraft"
+class PAPERCRAFT_PT_paper(_Child, bpy.types.Panel):
     bl_label = "Paper & Scale"
-    bl_parent_id = "PAPERCRAFT_PT_main"
 
     def draw(self, context):
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False
-        props = context.scene.papercraft
+        obj = T.target(context)
+        props = obj.papercraft
         col = layout.column()
         col.prop(props, "paper")
         if props.paper == "CUSTOM":
@@ -93,21 +108,19 @@ class PAPERCRAFT_PT_paper(bpy.types.Panel):
             col.prop(props, "model_size_mm")
         else:
             col.prop(props, "ratio")
+        if T.output(obj, T.ROLE_LAYOUT) is not None:
+            layout.operator("papercraft.reset_layout", icon="LOOP_BACK")
 
 
-class PAPERCRAFT_PT_pieces(bpy.types.Panel):
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "Papercraft"
+class PAPERCRAFT_PT_pieces(_Child, bpy.types.Panel):
     bl_label = "Pieces & Tabs"
-    bl_parent_id = "PAPERCRAFT_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False
-        props = context.scene.papercraft
+        props = T.target(context).papercraft
         col = layout.column()
         col.prop(props, "priority")
         col.prop(props, "max_faces")
@@ -116,45 +129,49 @@ class PAPERCRAFT_PT_pieces(bpy.types.Panel):
         col.prop(props, "tab_angle")
 
 
-class PAPERCRAFT_PT_animate(bpy.types.Panel):
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "Papercraft"
+class PAPERCRAFT_PT_animate(_Child, bpy.types.Panel):
     bl_label = "Fold Animation"
-    bl_parent_id = "PAPERCRAFT_PT_main"
 
     def draw(self, context):
         layout = self.layout
-        layout.operator("papercraft.build_rig", icon="ARMATURE_DATA")
-        arm = bpy.data.objects.get("Papercraft Rig")
-        if arm is not None and "fold" in arm:
+        obj = T.target(context)
+        arm = T.output(obj, T.ROLE_RIG)
+        if arm is None:
+            layout.operator("papercraft.build_rig", icon="ARMATURE_DATA")
+            return
+        entry = live.cached(obj)
+        if build.rig_is_stale(obj, entry):
+            box = layout.box()
+            box.alert = True
+            box.label(text="Rig is out of date with the cuts", icon="ERROR")
+        row = layout.row(align=True)
+        row.operator("papercraft.build_rig", text="Rebuild Rig", icon="FILE_REFRESH")
+        row.operator("papercraft.remove_rig", text="", icon="TRASH")
+        if "fold" in arm:
             col = layout.column(align=True)
             col.prop(arm, '["fold"]', text="Fold", slider=True)
             col.prop(arm, '["assemble"]', text="Assemble", slider=True)
             layout.operator("papercraft.animate", icon="KEY_HLT")
 
 
-class PAPERCRAFT_PT_export(bpy.types.Panel):
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "Papercraft"
-    bl_label = "Export"
-    bl_parent_id = "PAPERCRAFT_PT_main"
+class PAPERCRAFT_PT_export(_Child, bpy.types.Panel):
+    bl_label = "Print & Export"
 
     def draw(self, context):
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False
-        props = context.scene.papercraft
+        props = T.target(context).papercraft
         col = layout.column()
-        col.prop(props, "fill_faces")
-        sub = col.column()
-        sub.active = props.fill_faces
-        sub.prop(props, "print_textures")
-        sub2 = sub.column()
-        sub2.active = props.print_textures
-        sub2.prop(props, "texture_max")
-        sub.prop(props, "bleed")
+        col.prop(props, "texture_mode")
+        if props.texture_mode == "BAKE":
+            col.prop(props, "bake_pass")
+            col.prop(props, "bake_dpi")
+            col.prop(props, "tab_texture")
+        elif props.texture_mode == "IMAGE":
+            col.prop(props, "texture_max")
+        if props.texture_mode != "WHITE":
+            col.prop(props, "bleed")
         col.separator()
         col.prop(props, "line_style")
         sub = col.column()

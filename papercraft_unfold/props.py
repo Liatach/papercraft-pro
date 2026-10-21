@@ -12,22 +12,28 @@ from bpy.props import (
 from .core.layout import PAGE_SIZES_MM
 
 
-def _poll_mesh(self, obj):
-    return obj.type == "MESH" and not obj.name.startswith("Papercraft ")
-
-
 def _changed(self, context):
     from . import live
 
-    if self.live:
-        live.schedule()
+    if self.live and self.role == "SOURCE":
+        live.schedule(self.id_data)
 
 
 def _live_toggled(self, context):
     from . import live
 
-    if self.live:
-        live.schedule(force=True)
+    if self.live and self.role == "SOURCE":
+        live.schedule(self.id_data, force=True)
+
+
+ROLE_ITEMS = [
+    ("NONE", "None", ""),
+    ("SOURCE", "Model", "A model being unfolded"),
+    ("LAYOUT", "Layout", "Paper layout generated from a model"),
+    ("RIG", "Rig", "Fold rig generated from a model"),
+    ("FOLDING", "Folding Mesh", "Mesh deformed by the fold rig"),
+    ("TARGET", "Assembly Target", "Where a piece lands when assembled"),
+]
 
 
 PAPER_ITEMS = [(k, k.title() if len(k) > 3 else k, f"{w:g} x {h:g} mm") for k, (w, h) in PAGE_SIZES_MM.items()]
@@ -35,12 +41,12 @@ PAPER_ITEMS.append(("CUSTOM", "Custom", "Custom page size"))
 
 
 class PapercraftSettings(bpy.types.PropertyGroup):
-    source: PointerProperty(
-        name="Model",
-        type=bpy.types.Object,
-        poll=_poll_mesh,
-        update=_changed,
-        description="Mesh to unfold",
+    """Per-object settings: each model keeps its own papercraft setup."""
+
+    role: EnumProperty(name="Role", items=ROLE_ITEMS, default="NONE")
+    source_obj: PointerProperty(
+        name="Model", type=bpy.types.Object,
+        description="Model this generated object belongs to",
     )
     live: BoolProperty(
         name="Live Layout",
@@ -121,15 +127,37 @@ class PapercraftSettings(bpy.types.PropertyGroup):
     tab_angle: FloatProperty(name="Tab Angle", default=45.0, min=15.0, max=89.0, update=_changed)
 
     # Export -------------------------------------------------------------
-    fill_faces: BoolProperty(
-        name="Print Face Colours", default=True,
-        description="Fill pieces with their material colour (turn off for cut-only files)",
+    texture_mode: EnumProperty(
+        name="Print",
+        items=[
+            ("BAKE", "Baked Material",
+             "Bake what the material shows onto each page with Cycles: works with "
+             "layered/painted materials (e.g. Paint System), procedurals and vertex colours"),
+            ("IMAGE", "Image Textures", "Print image textures directly through the UVs (fast)"),
+            ("COLOR", "Flat Colours", "Each piece in its material's base colour"),
+            ("WHITE", "Lines Only", "No fill: white paper with lines (cutting machines)"),
+        ],
+        default="BAKE",
+    )
+    bake_pass: EnumProperty(
+        name="Bake",
+        items=[
+            ("BASE", "Base Colour", "The material's colour without lighting (usual for papercraft)"),
+            ("EMIT", "Emission", "For materials that output colour through an Emission shader"),
+            ("COMBINED", "Full Render", "Colour with the scene's lighting and shading"),
+        ],
+        default="BASE",
+    )
+    bake_dpi: IntProperty(
+        name="Bake DPI", default=200, min=50, max=600,
+        description="Print resolution of the baked pages (300 for fine detail; slower)",
+    )
+    tab_texture: BoolProperty(
+        name="Texture on Tabs", default=False,
+        description="Continue the neighbouring face's art onto the tabs, so small gaps "
+        "at glued seams don't show the tab colour (baked mode)",
     )
     numbers: BoolProperty(name="Edge Numbers", default=True)
-    print_textures: BoolProperty(
-        name="Print Textures", default=True,
-        description="Print image textures through the model's UVs (otherwise flat colours)",
-    )
     texture_max: IntProperty(
         name="Max Texture Size", default=2048, min=128, max=16384,
         description="Larger images are downsampled to this many pixels when embedded",
@@ -194,9 +222,9 @@ class PapercraftSettings(bpy.types.PropertyGroup):
 
 def register():
     bpy.utils.register_class(PapercraftSettings)
-    bpy.types.Scene.papercraft = PointerProperty(type=PapercraftSettings)
+    bpy.types.Object.papercraft = PointerProperty(type=PapercraftSettings)
 
 
 def unregister():
-    del bpy.types.Scene.papercraft
+    del bpy.types.Object.papercraft
     bpy.utils.unregister_class(PapercraftSettings)

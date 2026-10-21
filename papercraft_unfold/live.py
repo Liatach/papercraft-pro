@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Unfold pipeline + debounced live updates."""
+"""Unfold pipeline + debounced live updates, one cache entry per model."""
 
 import traceback
 
@@ -7,6 +7,7 @@ import bpy
 from bpy.app.handlers import persistent
 
 from . import build
+from . import targets as T
 from .core.layout import compute_layout
 from .core.unfold import unfold
 from .mesh_io import read_object
@@ -27,26 +28,36 @@ class CacheEntry:
         self.frame = frame
 
 
-CACHE = {}  # scene name -> CacheEntry
-_state = {"scheduled": False, "force": False}
+CACHE = {}  # model session_uid -> CacheEntry
+_state = {"pending": set(), "force": set(), "scheduled": False}
 
 
-def regenerate(scene, depsgraph, force=False):
-    props = scene.papercraft
-    obj = props.source
-    if obj is None or obj.name not in scene.objects:
-        props.info_message = "Pick a mesh to unfold"
+def _uid(obj):
+    return getattr(obj, "session_uid", None) or obj.name_full
+
+
+def cached(obj):
+    return CACHE.get(_uid(obj)) if obj is not None else None
+
+
+def regenerate(scene, depsgraph, obj, force=False):
+    """Unfold `obj` with its own settings and rebuild its layout."""
+    if obj is None or obj.name not in scene.objects or obj.type != "MESH":
         return None
+    props = obj.papercraft
+    if props.role != T.ROLE_SOURCE:
+        props.role = T.ROLE_SOURCE
     src = read_object(obj, depsgraph, props.cut_rules())
     settings = props.settings_key()
-    cached = CACHE.get(scene.name)
+    entry = CACHE.get(_uid(obj))
     if (
         not force
-        and cached is not None
-        and cached.signature == src.signature
-        and cached.settings == settings
+        and entry is not None
+        and entry.signature == src.signature
+        and entry.settings == settings
+        and T.output(obj, T.ROLE_LAYOUT) is not None
     ):
-        return cached
+        return entry
 
     res = unfold(
         src.verts, src.polys, src.seams, src.materials,
@@ -67,32 +78,33 @@ def regenerate(scene, depsgraph, force=False):
         tab_angle=props.tab_angle,
         tab_flips=frozenset((a, b) if a < b else (b, a) for a, b in src.flips),
     )
-    _, poly_map, frame = build.build_layout(scene, src, res, lay)
+    _, poly_map, frame = build.build_layout(scene, obj, src, res, lay)
 
     props.info_islands = len(res.islands)
     props.info_pages = lay.page_count
     props.info_scale = lay.scale
-    sizes = [max(v[i] for v in src.verts) - min(v[i] for v in src.verts) for i in range(3)] if src.verts else [0]
-    props.info_size_mm = max(sizes) * lay.scale
+    lo, hi, _ = build.model_bounds(src.verts)
+    props.info_size_mm = max(hi[i] - lo[i] for i in range(3)) * lay.scale
     props.info_glue = res.glue_count
     props.info_fits = lay.fits
-    props.info_message = "; ".join(res.warnings + lay.messages)
+    messages = []
     if src.rule_cuts:
-        props.info_message = "; ".join(
-            [f"{src.rule_cuts} cut(s) from colour/material/sharp rules"]
-            + ([props.info_message] if props.info_message else [])
-        )
+        messages.append(f"{src.rule_cuts} cut(s) from colour/material/sharp rules")
+    props.info_message = "; ".join(messages + res.warnings + lay.messages)
     entry = CacheEntry(src.signature, settings, src, res, lay, poly_map, frame)
-    CACHE[scene.name] = entry
+    CACHE[_uid(obj)] = entry
     return entry
 
 
-def get_or_build(context, force=False):
-    return regenerate(context.scene, context.evaluated_depsgraph_get(), force=force)
+def get_or_build(context, obj=None, force=False):
+    obj = obj if obj is not None else T.target(context)
+    return regenerate(context.scene, context.evaluated_depsgraph_get(), obj, force=force)
 
 
-def schedule(force=False):
-    _state["force"] = _state["force"] or force
+def schedule(obj, force=False):
+    _state["pending"].add(obj.name)
+    if force:
+        _state["force"].add(obj.name)
     if _state["scheduled"]:
         return
     _state["scheduled"] = True
@@ -101,33 +113,43 @@ def schedule(force=False):
 
 def _run():
     _state["scheduled"] = False
-    force = _state["force"]
-    _state["force"] = False
-    try:
-        context = bpy.context
-        regenerate(context.scene, context.evaluated_depsgraph_get(), force=force)
-    except Exception as exc:  # keep the timer from dying silently
-        traceback.print_exc()
+    pending, forced = _state["pending"], _state["force"]
+    _state["pending"], _state["force"] = set(), set()
+    context = bpy.context
+    for name in pending:
+        obj = bpy.data.objects.get(name)
+        if obj is None:
+            continue
         try:
-            bpy.context.scene.papercraft.info_message = f"Error: {exc}"
-        except Exception:
-            pass
+            regenerate(context.scene, context.evaluated_depsgraph_get(), obj, force=name in forced)
+        except Exception as exc:  # keep the timer from dying silently
+            traceback.print_exc()
+            try:
+                obj.papercraft.info_message = f"Error: {exc}"
+            except Exception:
+                pass
     return None
 
 
 @persistent
 def on_depsgraph_update(scene, depsgraph):
-    props = getattr(scene, "papercraft", None)
-    if props is None or not props.live or props.source is None:
+    live_sources = [o for o in T.sources(scene) if o.papercraft.live]
+    if not live_sources:
         return
-    src = props.source
+    by_obj = {o: o for o in live_sources}
+    by_mesh = {}
+    for o in live_sources:
+        if o.data is not None:
+            by_mesh.setdefault(o.data, []).append(o)
     for update in depsgraph.updates:
-        idb = update.id
-        original = getattr(idb, "original", idb)
-        if original == src or (src.data is not None and original == src.data):
-            if update.is_updated_geometry or update.is_updated_transform:
-                schedule()
-                return
+        if not (update.is_updated_geometry or update.is_updated_transform):
+            continue
+        original = getattr(update.id, "original", update.id)
+        if original in by_obj:
+            schedule(original)
+        elif original in by_mesh:
+            for o in by_mesh[original]:
+                schedule(o)
 
 
 def register():
@@ -141,4 +163,5 @@ def unregister():
     if bpy.app.timers.is_registered(_run):
         bpy.app.timers.unregister(_run)
     _state["scheduled"] = False
+    _state["pending"].clear()
     CACHE.clear()

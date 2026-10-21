@@ -16,7 +16,8 @@ class SourceData:
     __slots__ = (
         "verts", "polys", "seams", "joins", "flips", "materials", "uvs", "colors",
         "mat_list", "images", "signature", "topology_ok", "rule_cuts", "face_colors",
-        "user_seams",
+        "user_seams", "uv_layers", "render_uv", "color_layers", "active_color",
+        "image_uvs",
     )
 
     def __init__(self):
@@ -35,49 +36,84 @@ class SourceData:
         self.topology_ok = True  # evaluated mesh matches the editable mesh
         self.rule_cuts = 0
         self.user_seams = set()  # normalised keys of edges marked as seams
+        self.uv_layers = {}  # name -> per polygon [(u, v), ...] (all UV maps)
+        self.render_uv = None
+        self.color_layers = {}  # name -> per polygon [(r, g, b, a), ...]
+        self.active_color = None
+        self.image_uvs = []  # per material slot: UV map name its image uses
 
 
 # ------------------------------------------------------------- materials
+def _uv_of_image_node(node):
+    """UV map named by a UV Map node feeding an image node's Vector input."""
+    sock = node.inputs.get("Vector")
+    if sock is None:
+        return None
+    for link in sock.links:
+        n = link.from_node
+        for _ in range(8):
+            if n.type == "UVMAP":
+                return n.uv_map or None
+            ins = [s for s in n.inputs if s.links]
+            if not ins:
+                break
+            n = ins[0].links[0].from_node
+    return None
+
+
 def _upstream_image(node, depth=0, seen=None):
-    """First Image Texture node feeding `node` (through mix/hue/etc.)."""
+    """First Image Texture node feeding `node`, looking through mix nodes and
+    into node groups (layered setups such as Paint System keep their images
+    inside groups). Returns (image, uv_map_name_or_None)."""
+    if node is None or depth > 24:
+        return None
     if seen is None:
         seen = set()
-    if node is None or depth > 12 or node.name in seen:
+    ident = (node.id_data.name, node.name)
+    if ident in seen:
         return None
-    seen.add(node.name)
+    seen.add(ident)
     if node.type == "TEX_IMAGE" and node.image is not None:
-        return node.image
+        return node.image, _uv_of_image_node(node)
+    if node.type == "GROUP" and node.node_tree is not None:
+        for inner in node.node_tree.nodes:
+            if inner.type == "GROUP_OUTPUT" and inner.is_active_output:
+                found = _upstream_image(inner, depth + 1, seen)
+                if found:
+                    return found
+    if node.type == "GROUP_INPUT":
+        return None
     for sock in node.inputs:
         for link in sock.links:
-            img = _upstream_image(link.from_node, depth + 1, seen)
-            if img is not None:
-                return img
+            found = _upstream_image(link.from_node, depth + 1, seen)
+            if found:
+                return found
     return None
 
 
 def material_image(mat):
-    """The image a material prints with: whatever feeds Base Color
-    (or the shader output), else any image texture node in the material."""
+    """(image, uv map name or None) a material prints with: whatever feeds
+    Base Color (or the shader output), else any image texture node."""
     if mat is None or not mat.use_nodes or mat.node_tree is None:
-        return None
+        return None, None
     nodes = mat.node_tree.nodes
     for node in nodes:
         if node.type == "BSDF_PRINCIPLED":
             sock = node.inputs.get("Base Color")
             if sock is not None:
                 for link in sock.links:
-                    img = _upstream_image(link.from_node)
-                    if img is not None:
-                        return img
+                    found = _upstream_image(link.from_node)
+                    if found:
+                        return found
     for node in nodes:
         if node.type == "OUTPUT_MATERIAL" and node.is_active_output:
-            img = _upstream_image(node)
-            if img is not None:
-                return img
+            found = _upstream_image(node)
+            if found:
+                return found
     for node in nodes:
         if node.type == "TEX_IMAGE" and node.image is not None:
-            return node.image
-    return None
+            return node.image, _uv_of_image_node(node)
+    return None, None
 
 
 def material_color(mat):
@@ -164,9 +200,13 @@ def read_object(obj, depsgraph, rules=None):
     mw = obj.matrix_world
     data.mat_list = [slot.material for slot in obj.material_slots]
     data.colors = [material_color(m) for m in data.mat_list]
-    data.images = [material_image(m) for m in data.mat_list]
+    found = [material_image(m) for m in data.mat_list]
+    data.images = [f[0] for f in found]
     color_info = _active_color_info(obj.data)
     uv_name = _render_uv_name(obj.data)
+    data.render_uv = uv_name
+    data.image_uvs = [f[1] or uv_name for f in found]
+    data.active_color = color_info[0] if color_info else None
     seams, sharp = [], []
 
     if obj.mode == "EDIT" and obj.type == "MESH":
@@ -190,8 +230,18 @@ def read_object(obj, depsgraph, rules=None):
                 out.extend(
                     (e.verts[0].index, e.verts[1].index) for e in bm.edges if e[layer]
                 )
+        for name in bm.loops.layers.uv.keys():
+            layer = bm.loops.layers.uv[name]
+            data.uv_layers[name] = [[tuple(lp[layer].uv) for lp in f.loops] for f in bm.faces]
+        for kind in ("float_color", "color"):
+            for name in getattr(bm.loops.layers, kind).keys():
+                layer = getattr(bm.loops.layers, kind)[name]
+                data.color_layers[name] = [[tuple(lp[layer]) for lp in f.loops] for f in bm.faces]
+            for name in getattr(bm.verts.layers, kind).keys():
+                layer = getattr(bm.verts.layers, kind)[name]
+                data.color_layers[name] = [[tuple(v[layer]) for v in f.verts] for f in bm.faces]
         if uv_layer is not None:
-            data.uvs = [[tuple(lp[uv_layer].uv) for lp in f.loops] for f in bm.faces]
+            data.uvs = data.uv_layers.get(uv_name)
         if rules.get("colors") and color_info:
             data.face_colors = _bm_face_colors(bm, *color_info)
     else:
@@ -216,13 +266,8 @@ def read_object(obj, depsgraph, rules=None):
                 attr = mesh.attributes.get(name)
                 if attr is not None and attr.domain == "EDGE":
                     out.extend(k for k, d in zip(edge_keys, attr.data) if d.value)
-            uv = mesh.uv_layers.get(uv_name) if uv_name else None
-            if uv is not None:
-                uvd = uv.data
-                data.uvs = [
-                    [tuple(uvd[li].uv) for li in range(p.loop_start, p.loop_start + p.loop_total)]
-                    for p in mesh.polygons
-                ]
+            _read_corner_layers(mesh, data)
+            data.uvs = data.uv_layers.get(uv_name) if uv_name else None
             if rules.get("colors") and color_info:
                 data.face_colors = _mesh_face_colors(mesh, color_info[0])
         finally:
@@ -261,6 +306,43 @@ def read_object(obj, depsgraph, rules=None):
                             for c in data.face_colors]), "ascii"))
     data.signature = h.hexdigest()
     return data
+
+
+def _read_corner_layers(mesh, data):
+    """All UV maps and colour attributes, as per-polygon corner lists."""
+    npoly = len(mesh.polygons)
+    starts = [0] * npoly
+    totals = [0] * npoly
+    mesh.polygons.foreach_get("loop_start", starts)
+    mesh.polygons.foreach_get("loop_total", totals)
+    nloop = len(mesh.loops)
+    for uv in mesh.uv_layers:
+        flat = [0.0] * (nloop * 2)
+        uv.data.foreach_get("uv", flat)
+        data.uv_layers[uv.name] = [
+            [(flat[2 * li], flat[2 * li + 1]) for li in range(st, st + tot)]
+            for st, tot in zip(starts, totals)
+        ]
+    corner_vert = None
+    for attr in mesh.attributes:
+        if attr.data_type not in ("FLOAT_COLOR", "BYTE_COLOR") or attr.name.startswith("."):
+            continue
+        if attr.domain not in ("CORNER", "POINT", "FACE"):
+            continue
+        flat = [0.0] * (len(attr.data) * 4)
+        attr.data.foreach_get("color", flat)
+        vals = [tuple(flat[4 * i:4 * i + 4]) for i in range(len(attr.data))]
+        if attr.domain == "CORNER":
+            per = [vals[st:st + tot] for st, tot in zip(starts, totals)]
+        elif attr.domain == "POINT":
+            if corner_vert is None:
+                corner_vert = [0] * nloop
+                mesh.loops.foreach_get("vertex_index", corner_vert)
+            per = [[vals[corner_vert[li]] for li in range(st, st + tot)]
+                   for st, tot in zip(starts, totals)]
+        else:
+            per = [[vals[fi]] * tot for fi, tot in enumerate(totals)]
+        data.color_layers[attr.name] = per
 
 
 def _mesh_face_colors(mesh, name):

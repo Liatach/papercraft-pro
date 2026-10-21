@@ -16,21 +16,28 @@ By Kim Lang / Liatach Makes. Written from scratch; GPL-3.0-or-later.
 
 ## Use
 
-1. Pick the model (eyedropper uses the active object) and press **Unfold**.
+Everything is per model: select a mesh and the **Papercraft** tab shows
+*its* settings, layout and rig. Unfold as many models in one scene as you
+like; selecting a layout or rig jumps to its model.
+
+1. Select the model and press **Unfold**. Its pages appear beside it; move
+   the layout object anywhere (it stays put; **Reset Layout Position**
+   brings it back).
 2. **Show Layout** looks straight down on the pages. Split the viewport
    (View → Area → Vertical Split) to see model and layout side by side.
 3. Turn on **Live Layout** and mark seams in Edit Mode (**Cut Here / Join**)
    to control where the model is cut; the pages update as you work.
-4. **Export SVG Pages** writes one SVG per page with separate layers for
-   faces, tabs, cut lines, mountain folds (dash-dot), valley folds (dashed)
-   and glue numbers.
-5. **Fold Animation → Build Fold Rig**, then drive **Fold** and **Assemble**
-   or press **Keyframe Fold Animation**.
-
-6. **Edit Cuts** (Pepakura style): hover an edge on the model *or* the
+4. **Edit Cuts** (Pepakura style): hover an edge on the model *or* the
    paper layout and it lights up in both places; click to cut a fold or join
    a cut. Click a tab to move it to the other side of its seam. Works across
    split viewports. Right-click or Esc when done.
+5. **Fold Animation → Build Fold Rig**, then drive **Fold** and **Assemble**
+   or press **Keyframe Fold Animation**. If you change cuts or tabs later
+   the panel shows *Rig is out of date*; **Rebuild Rig** keeps your
+   keyframes (Edit Cuts rebuilds it for you when you finish). The bin icon
+   removes the rig; **Remove Papercraft** (bin by the model name) removes
+   everything generated for that model.
+6. **Export SVG Pages** writes one SVG per page.
 
 ### Cut along
 
@@ -44,16 +51,25 @@ A *Join* made with Edit Cuts overrides a material/colour/sharp cut.
 
 ### Printing
 
-* **Print Textures**: image textures feeding Base Color are printed through
-  the model's render UV map (tiling supported), embedded in each SVG.
-  PNG/JPEG files are embedded as-is; other images are encoded and
-  downsampled to *Max Texture Size*.
+* **Print: Baked Material** (default): Cycles bakes what the material shows
+  onto each page, so anything prints: image textures on any UV map, layered
+  paint setups such as the Paint System add-on (its `PS_UVMap` and grouped
+  layers), procedurals and vertex colours. Choose *Base Colour* (no
+  lighting), *Emission*, or *Full Render*, and the *Bake DPI*.
+  **Texture on Tabs** carries the neighbouring art onto the tabs so tiny
+  gaps at glued seams don't show tab colour.
+* **Image Textures**: fast; prints the image feeding Base Color (found
+  inside node groups too) through the UV map that image uses.
+* **Flat Colours** / **Lines Only** for quick tests and cutting machines.
 * **Bleed**: colour runs a little past each edge so imperfect cuts don't
   show white.
 * **Lines**: *Default* (black cut, red mountain, blue valley), *Multiply*
   (grey lines multiplied into the art), *Colour Burn* (lines burned into the
   art), or *No Lines* (hidden layers, still there for a cutting machine).
   *Line Strength*, *Line Width* and *Hide Folds Under N°* fine-tune it.
+
+The layout and folding meshes carry copies of all the model's UV maps and
+colour layers, so the model's materials preview correctly on the pages.
 
 ### Scale options
 
@@ -81,10 +97,10 @@ outside Blender:
 python tests/test_core.py          # unfold, refold and layout checks
 python tests/test_blender.py       # end-to-end, needs `pip install bpy`
 python tests/test_v02.py           # textures, line styles, cut rules, editor
+python tests/test_v03.py           # several models, rig rebuilds, baking
 ```
 
 ## Roadmap
 
 * Drag pieces around the page; PDF export
-* Bake procedural materials to a texture for printing
 * Pop-up mechanism design add-on built on the same hinge rig

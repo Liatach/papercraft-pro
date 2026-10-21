@@ -86,12 +86,17 @@ def export_pages(
     fold_min_angle=1.0,
     bleed=0.2,
     tab_color=(0.914, 0.902, 0.875),
+    page_images=None,
+    tab_texture=False,
 ):
     """Return a list of SVG documents (strings), one per page.
 
     colors    per material index (r, g, b) floats, or None
     textures  per material index Texture, or None
-    uvs       per *source* polygon list of (u, v) per corner
+    uvs       per material index: per *source* polygon list of (u, v) per
+              corner (the UV map that material's image uses)
+    page_images  per page Texture of a baked page (overrides face fills)
+    tab_texture  let the baked page image show on tabs too
     fold_min_angle  folds flatter than this (degrees) are not drawn
     bleed     mm of colour/texture spill past edges, hides white slivers
     """
@@ -111,7 +116,7 @@ def export_pages(
     page_count = max(lay.page_count, 1)
     pages = [
         {"defs": [], "faces": [], "tabs": [], "cut": [], "mountain": [], "valley": [],
-         "numbers": [], "tex_used": set()}
+         "numbers": [], "tex_used": set(), "clip": []}
         for _ in range(page_count)
     ]
     pattern_n = [0]
@@ -124,8 +129,9 @@ def export_pages(
         if textures and face.material < len(textures):
             tex = textures[face.material]
         face_uv = None
-        if tex is not None and uvs and face.source < len(uvs) and uvs[face.source]:
-            src_uv = uvs[face.source]
+        layer = uvs[face.material] if uvs and face.material < len(uvs) else None
+        if tex is not None and layer and face.source < len(layer) and layer[face.source]:
+            src_uv = layer[face.source]
             face_uv = [src_uv[c] for c in face.corners]
         if tex is not None and face_uv is not None:
             done = 0
@@ -173,7 +179,13 @@ def export_pages(
             face = res.faces[f]
             pts = lay.face_points(res, isl, f)
             count = len(pts)
-            if fill_faces:
+            if page_images and page_images[place.page] is not None:
+                for a_, b_, c_ in g.triangulate_2d(pts):
+                    tri = g.grow_triangle([svgp(pts[a_]), svgp(pts[b_]), svgp(pts[c_])], bleed)
+                    page["clip"].append(
+                        f'<polygon points="{" ".join(f"{_fmt(x)},{_fmt(y)}" for x, y in tri)}"/>'
+                    )
+            elif fill_faces:
                 face_fill(page, face, pts)
             for k in range(count):
                 a, b = pts[k], pts[(k + 1) % count]
@@ -189,7 +201,10 @@ def export_pages(
                 tab = tab_on.get((f, k))
                 if tab is not None:
                     tp = lay.tab_points(tab)
-                    page["tabs"].append(f'<polygon points="{" ".join(pt(p) for p in tp)}"/>')
+                    poly = f'<polygon points="{" ".join(pt(p) for p in tp)}"/>'
+                    page["tabs"].append(poly)
+                    if tab_texture:
+                        page["clip"].append(poly)
                     page["cut"].append(
                         f'<path d="M {pt(tp[0])} L {pt(tp[1])} L {pt(tp[2])} L {pt(tp[3])}"/>'
                     )
@@ -222,10 +237,20 @@ def export_pages(
                 f'preserveAspectRatio="none" xlink:href="{tex.href}" href="{tex.href}"/>'
             )
         parts.extend(layers["defs"])
+        baked = page_images[n - 1] if page_images and n - 1 < len(page_images) else None
+        if baked is not None:
+            parts.append('<clipPath id="pieces" clipPathUnits="userSpaceOnUse">')
+            parts.extend(layers["clip"])
+            parts.append("</clipPath>")
+            layers["faces"].insert(0, (
+                f'<image x="0" y="0" width="{_fmt(lay.page_w)}" height="{_fmt(lay.page_h)}" '
+                f'preserveAspectRatio="none" clip-path="url(#pieces)" '
+                f'xlink:href="{baked.href}" href="{baked.href}"/>'
+            ))
         parts.append("</defs>")
         groups = [
-            ("faces", ""),
             ("tabs", f"fill:{_hex(tab_color)};stroke:none"),
+            ("faces", ""),
             ("mountain", lines["mountain"]),
             ("valley", lines["valley"]),
             ("cut", lines["cut"]),

@@ -11,6 +11,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 import papercraft_unfold as addon  # noqa: E402
 from papercraft_unfold import live  # noqa: E402
+from papercraft_unfold import targets as T  # noqa: E402
 from papercraft_unfold.core.svg import export_pages  # noqa: E402
 
 OUT = os.path.join(ROOT, "tests", "out")
@@ -39,9 +40,9 @@ def make(kind):
     return obj
 
 
-def check_rig(entry):
-    arm = bpy.data.objects["Papercraft Rig"]
-    folding = bpy.data.objects["Papercraft Folding"]
+def check_rig(obj, entry):
+    arm = T.output(obj, T.ROLE_RIG)
+    folding = T.output(obj, T.ROLE_FOLDING)
     res = entry.res
     errs = {}
     for fold, assemble in ((0.0, 0.0), (1.0, 1.0), (0.5, 0.0)):
@@ -73,15 +74,15 @@ def check_rig(entry):
 
 for kind in ("cube", "ico", "cylinder", "monkey"):
     obj = make(kind)
-    props = scene.papercraft
-    props.source = obj
+    props = obj.papercraft
+    bpy.context.view_layer.objects.active = obj
     props.pages = 1 if kind != "monkey" else 2
     assert bpy.ops.papercraft.unfold() == {"FINISHED"}
-    entry = live.CACHE[scene.name]
-    layout = bpy.data.objects["Papercraft Layout"]
+    entry = live.cached(obj)
+    layout = T.output(obj, T.ROLE_LAYOUT)
     assert len(layout.data.polygons) > 0
     assert bpy.ops.papercraft.build_rig() == {"FINISHED"}
-    errs = check_rig(entry)
+    errs = check_rig(obj, entry)
     size = max(obj.dimensions)
     print(
         f"{kind:8s} pieces={props.info_islands:3d} pages={props.info_pages} fits={props.info_fits} "
@@ -102,7 +103,7 @@ for kind in ("cube", "ico", "cylinder", "monkey"):
 assert bpy.ops.papercraft.animate("EXEC_DEFAULT", start=1, fold_frames=40, assemble_frames=30) == {
     "FINISHED"
 }
-arm = bpy.data.objects["Papercraft Rig"]
+arm = T.output(obj, T.ROLE_RIG)
 fcurves = [fc.data_path for fc in arm.animation_data.action.fcurves] if hasattr(
     arm.animation_data.action, "fcurves"
 ) else ["layered"]
@@ -110,7 +111,9 @@ print("keyed:", fcurves, "frame_end", scene.frame_end)
 
 # Edit-mode seams + live path
 obj = make("cube")
-props.source = obj
+props = obj.papercraft
+bpy.context.view_layer.objects.active = obj
+bpy.ops.papercraft.unfold()
 props.live = True
 bpy.ops.object.mode_set(mode="EDIT")
 import bmesh  # noqa: E402
@@ -119,7 +122,7 @@ bm = bmesh.from_edit_mesh(obj.data)
 for e in bm.edges:
     e.seam = True  # cut every edge -> 6 separate squares
 bmesh.update_edit_mesh(obj.data)
-live.on_depsgraph_update(scene, bpy.context.evaluated_depsgraph_get())
+live.schedule(obj)
 live._run()
 print("all seams cut -> pieces:", props.info_islands, "pages:", props.info_pages)
 assert props.info_islands == 6

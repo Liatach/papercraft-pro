@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Scene objects: the live paper layout and the fold/assemble rig."""
+"""Scene objects for each model: the live paper layout and the fold rig."""
+
+import hashlib
 
 import bpy
 from mathutils import Matrix, Vector
 
-from .mesh_io import ensure_collection
+from . import targets as T
 
-LAYOUT_COLLECTION = "Papercraft Layout"
-RIG_COLLECTION = "Papercraft Fold Rig"
 PAGE_GAP_MM = 15.0
 
 
@@ -27,57 +27,130 @@ def _material(name, rgba):
     return mat
 
 
-def _replace_mesh(obj_name, mesh_name, coll):
-    obj = bpy.data.objects.get(obj_name)
-    if obj is not None and obj.type == "MESH":
-        mesh = obj.data
-        mesh.clear_geometry()
-        mesh.materials.clear()
-    else:
-        mesh = bpy.data.meshes.new(mesh_name)
-        obj = bpy.data.objects.new(obj_name, mesh)
-    if obj.name not in coll.objects:
-        coll.objects.link(obj)
-    return obj, mesh
+def model_bounds(verts):
+    xs = [v[0] for v in verts] or [0.0]
+    ys = [v[1] for v in verts] or [0.0]
+    zs = [v[2] for v in verts] or [0.0]
+    size = max(max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs), 1e-6)
+    return (min(xs), min(ys), min(zs)), (max(xs), max(ys), max(zs)), size
 
 
 class PageFrame:
-    """Maps page millimetres to world space beside the source model."""
+    """Page millimetres -> the layout object's space -> world.
 
-    def __init__(self, source_verts, lay):
-        xs = [v[0] for v in source_verts] or [0.0]
-        ys = [v[1] for v in source_verts] or [0.0]
-        zs = [v[2] for v in source_verts] or [0.0]
-        size = max(max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs), 1e-6)
+    The layout object can be moved/rotated freely; everything (highlights,
+    rig) follows it."""
+
+    def __init__(self, lay, layout_name):
         self.unit = 1.0 / lay.scale if lay.scale > 0 else 1.0  # world units per mm
-        self.x0 = max(xs) + size * 0.25
-        self.y0 = (min(ys) + max(ys)) * 0.5 - lay.page_h * self.unit * 0.5
-        self.z0 = min(zs)
         self.page_w = lay.page_w
         self.page_h = lay.page_h
+        self.layout_name = layout_name
 
-    def to_rig(self, page, p):
-        """Same piece, turned printed-side-down on the table in front of the
-        layout (a 180 degree turn, not a mirror) so folds rise upwards."""
-        v = self.to_world(page, p)
-        yc = self.y0 + self.page_h * self.unit * 0.5
-        shift = self.page_h * self.unit * 1.1
-        return Vector((v.x, 2.0 * yc - v.y - shift, 2.0 * self.z0 - v.z))
+    @property
+    def matrix(self):
+        obj = bpy.data.objects.get(self.layout_name)
+        return obj.matrix_world.copy() if obj is not None else Matrix.Identity(4)
+
+    def to_local(self, page, p, lift=0.0):
+        return Vector((
+            (page * (self.page_w + PAGE_GAP_MM) + p[0]) * self.unit,
+            p[1] * self.unit,
+            lift * self.unit,
+        ))
 
     def to_world(self, page, p, lift=0.0):
-        x = self.x0 + (page * (self.page_w + PAGE_GAP_MM) + p[0]) * self.unit
-        y = self.y0 + p[1] * self.unit
-        return Vector((x, y, self.z0 + lift * self.unit))
+        return self.matrix @ self.to_local(page, p, lift)
+
+    def to_rig(self, page, p, matrix=None):
+        """Same piece, turned printed-side-down on the table in front of the
+        layout (a 180 degree turn, not a mirror) so folds rise upwards."""
+        v = self.to_local(page, p)
+        h = self.page_h * self.unit
+        flipped = Vector((v.x, h - v.y - h * 1.1, -v.z))
+        return (matrix if matrix is not None else self.matrix) @ flipped
+
+
+def default_layout_location(verts, lay):
+    lo, hi, size = model_bounds(verts)
+    unit = 1.0 / lay.scale if lay.scale > 0 else 1.0
+    return Vector((hi[0] + size * 0.25, (lo[1] + hi[1]) * 0.5 - lay.page_h * unit * 0.5, lo[2]))
+
+
+def write_corner_layers(mesh, src, corner_sources):
+    """Copy every UV map and colour attribute from the model.
+
+    corner_sources: per new polygon either a res Face (copy its corners) or
+    an int n (n blank corners, e.g. tabs and page sheets)."""
+    for name, per_poly in src.uv_layers.items():
+        if len(mesh.uv_layers) >= 8:
+            break
+        flat = []
+        for item in corner_sources:
+            if isinstance(item, int):
+                flat.extend([0.0] * (2 * item))
+                continue
+            poly_uv = per_poly[item.source]
+            for c in item.corners:
+                flat.extend(poly_uv[c])
+        layer = mesh.uv_layers.new(name=name)
+        layer.data.foreach_set("uv", flat)
+    for uv in mesh.uv_layers:
+        uv.active_render = uv.name == src.render_uv
+    if src.render_uv and src.render_uv in mesh.uv_layers:
+        mesh.uv_layers.active = mesh.uv_layers[src.render_uv]
+    for name, per_poly in src.color_layers.items():
+        flat = []
+        for item in corner_sources:
+            if isinstance(item, int):
+                flat.extend([1.0] * (4 * item))
+                continue
+            poly_col = per_poly[item.source]
+            for c in item.corners:
+                col = tuple(poly_col[c]) + (1.0,) * (4 - len(poly_col[c]))
+                flat.extend(col[:4])
+        try:
+            attr = mesh.color_attributes.new(name, "FLOAT_COLOR", "CORNER")
+        except RuntimeError:
+            continue
+        attr.data.foreach_set("color", flat)
+    if src.active_color and src.active_color in mesh.color_attributes:
+        try:
+            mesh.color_attributes.active_color_name = src.active_color
+        except AttributeError:
+            mesh.color_attributes.active_color = mesh.color_attributes[src.active_color]
+        try:
+            mesh.color_attributes.render_color_index = list(
+                mesh.color_attributes.keys()
+            ).index(src.active_color)
+        except (AttributeError, ValueError):
+            pass
 
 
 # ----------------------------------------------------------------- layout
-def build_layout(scene, src, res, lay, name="Papercraft Layout"):
-    """(Re)build the flat layout object: paper sheets, pieces, tabs."""
-    coll = ensure_collection(scene, LAYOUT_COLLECTION)
-    obj, mesh = _replace_mesh(name, name, coll)
-    frame = PageFrame(src.verts, lay)
+def build_layout(scene, src_obj, src, res, lay):
+    """(Re)build the model's flat layout object: paper sheets, pieces, tabs."""
+    obj = T.output(src_obj, T.ROLE_LAYOUT)
+    created = obj is None or obj.type != "MESH"
+    if created:
+        mesh = bpy.data.meshes.new(f"{src_obj.name} Layout")
+        obj = bpy.data.objects.new(f"{src_obj.name} Layout", mesh)
+        T.tag(obj, T.ROLE_LAYOUT, src_obj)
+        obj.location = default_layout_location(src.verts, lay)
+    else:
+        mesh = obj.data
+        mesh.clear_geometry()
+        mesh.materials.clear()
+        for attr in list(mesh.color_attributes):
+            mesh.color_attributes.remove(attr)
+        while mesh.uv_layers:
+            mesh.uv_layers.remove(mesh.uv_layers[0])
+    coll = T.collection_for(scene, src_obj)
+    if obj.name not in coll.objects:
+        coll.objects.link(obj)
+    frame = PageFrame(lay, obj.name)
 
-    verts, faces, mat_idx, uvs = [], [], [], []
+    verts, faces, mat_idx, corners = [], [], [], []
     paper = _material("Papercraft Paper", (1.0, 1.0, 1.0, 1.0))
     tab_mat = _material("Papercraft Tab", (0.85, 0.80, 0.70, 1.0))
     warn_mat = _material("Papercraft Tab Warning", (0.9, 0.15, 0.1, 1.0))
@@ -89,58 +162,59 @@ def build_layout(scene, src, res, lay, name="Papercraft Layout"):
                 mats.append(m)
             slot_of_src[i] = mats.index(m)
 
-    def add_poly(points, page, lift, mat, uv=None):
+    def add_poly(points, page, lift, mat, corner_src):
         base = len(verts)
         for p in points:
-            verts.append(frame.to_world(page, p, lift))
+            verts.append(frame.to_local(page, p, lift))
         faces.append(list(range(base, base + len(points))))
         mat_idx.append(mat)
-        uvs.append(uv if uv else [(0.0, 0.0)] * len(points))
+        corners.append(corner_src)
 
     poly_map = []  # layout polygon -> ("page", n) | ("tab", i) | ("face", f)
     for page in range(max(lay.page_count, 1)):
         add_poly(
             [(0, 0), (lay.page_w, 0), (lay.page_w, lay.page_h), (0, lay.page_h)],
-            page,
-            0.0,
-            0,
+            page, 0.0, 0, 4,
         )
         poly_map.append(("page", page))
     for n, tab in enumerate(lay.tabs):
         place = lay.placements[tab.island]
-        add_poly(lay.tab_points(tab), place.page, 0.05, 2 if tab.squashed else 1)
+        pts = lay.tab_points(tab)
+        add_poly(pts, place.page, 0.05, 2 if tab.squashed else 1, len(pts))
         poly_map.append(("tab", n))
     for isl in res.islands:
         place = lay.placements[isl.index]
         for f in isl.order:
             face = res.faces[f]
-            uv = _face_uv(src, face)
             add_poly(
-                lay.face_points(res, isl, f),
-                place.page,
-                0.1,
-                slot_of_src.get(face.material, 0),
-                uv,
+                lay.face_points(res, isl, f), place.page, 0.1,
+                slot_of_src.get(face.material, 0), face,
             )
             poly_map.append(("face", f))
 
-    mesh.from_pydata(verts, [], faces)
+    mesh.from_pydata([tuple(v) for v in verts], [], faces)
     for m in mats:
         mesh.materials.append(m)
     mesh.polygons.foreach_set("material_index", mat_idx)
-    uv_layer = mesh.uv_layers.new(name="UVMap")
-    flat = [c for poly_uv in uvs for uv in poly_uv for c in uv]
-    uv_layer.data.foreach_set("uv", flat)
+    write_corner_layers(mesh, src, corners)
     mesh.update()
     obj.show_wire = True
     obj.show_all_edges = True
-    obj["papercraft_source"] = src_name_hint(scene)
     return obj, poly_map, frame
 
 
-def src_name_hint(scene):
-    props = scene.papercraft
-    return props.source.name if props.source else ""
+def reset_layout_position(src_obj, entry):
+    obj = T.output(src_obj, T.ROLE_LAYOUT)
+    if obj is not None:
+        obj.matrix_world = Matrix.Translation(default_layout_location(entry.src.verts, entry.lay))
+
+
+def remove_layout(src_obj):
+    for obj in T.outputs(src_obj, T.ROLE_LAYOUT):
+        data = obj.data
+        bpy.data.objects.remove(obj, do_unlink=True)
+        if data is not None and data.users == 0:
+            bpy.data.meshes.remove(data)
 
 
 # ----------------------------------------------------------------- rig
@@ -171,22 +245,71 @@ def _frame_from_points(pts, k):
     return m
 
 
-def remove_rig():
-    for name in ("Papercraft Rig", "Papercraft Folding"):
-        obj = bpy.data.objects.get(name)
-        if obj is not None:
+def rig_signature(entry):
+    h = hashlib.sha1()
+    h.update(entry.signature.encode())
+    h.update(repr(entry.settings).encode())
+    return h.hexdigest()[:16]
+
+
+def rig_is_stale(src_obj, entry):
+    arm = T.output(src_obj, T.ROLE_RIG)
+    if arm is None or entry is None:
+        return False
+    return arm.get("papercraft_signature") != rig_signature(entry)
+
+
+def ensure_object_mode(context):
+    """Leave Edit/Pose/Paint modes safely. Returns (active name, mode) to
+    restore afterwards."""
+    view_layer = context.view_layer
+    active = view_layer.objects.active
+    mode = context.mode
+    if mode != "OBJECT" and active is not None:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except RuntimeError:
+            pass
+    return (active.name if active is not None else None), mode
+
+
+def restore_mode(context, saved):
+    name, mode = saved
+    obj = bpy.data.objects.get(name) if name else None
+    if obj is None or obj.name not in context.view_layer.objects:
+        return
+    context.view_layer.objects.active = obj
+    if mode == "EDIT_MESH" and obj.type == "MESH":
+        try:
+            bpy.ops.object.mode_set(mode="EDIT")
+        except RuntimeError:
+            pass
+
+
+def remove_rig(src_obj):
+    """Delete the model's rig. Returns its animation so a rebuild can keep it."""
+    saved = None
+    arm = T.output(src_obj, T.ROLE_RIG)
+    if arm is not None:
+        ad = arm.animation_data
+        saved = {
+            "action": ad.action if ad else None,
+            "slot": getattr(ad, "action_slot", None) if ad else None,
+            "fold": float(arm.get("fold", 0.0)),
+            "assemble": float(arm.get("assemble", 0.0)),
+        }
+        if saved["action"] is not None:
+            saved["action"].use_fake_user = True  # survive while the rig is gone
+    for role in (T.ROLE_FOLDING, T.ROLE_RIG, T.ROLE_TARGET):
+        for obj in T.outputs(src_obj, role):
             data = obj.data
             bpy.data.objects.remove(obj, do_unlink=True)
             if data is not None and data.users == 0:
                 if isinstance(data, bpy.types.Armature):
                     bpy.data.armatures.remove(data)
-                else:
+                elif isinstance(data, bpy.types.Mesh):
                     bpy.data.meshes.remove(data)
-    coll = bpy.data.collections.get(RIG_COLLECTION)
-    if coll is not None:
-        for obj in list(coll.objects):
-            if obj.name.startswith("Papercraft Target"):
-                bpy.data.objects.remove(obj, do_unlink=True)
+    return saved
 
 
 def _add_driver(target_id, data_path, index, owner, prop, factor):
@@ -205,21 +328,25 @@ def _add_driver(target_id, data_path, index, owner, prop, factor):
     return fc
 
 
-def build_rig(context, src, res, lay, include_tabs=True):
+def build_rig(context, src_obj, entry, include_tabs=True):
     """Armature with one bone per face (and per tab). Bone Y axes lie on the
     hinge edges, so each fold is a single driven Y rotation:
         fold     0 = flat on the page, 1 = folded into shape
         assemble 0 = pieces stay on the page, 1 = pieces fly to the model
-    """
+    Rebuilding keeps the previous rig's keyframes."""
+    src, res, lay = entry.src, entry.res, entry.lay
     scene = context.scene
-    remove_rig()
-    coll = ensure_collection(scene, RIG_COLLECTION)
-    frame = PageFrame(src.verts, lay)
+    saved_mode = ensure_object_mode(context)
+    saved_anim = remove_rig(src_obj)
+    coll = T.collection_for(scene, src_obj)
+    layout_obj = T.output(src_obj, T.ROLE_LAYOUT)
+    frame = entry.frame or PageFrame(lay, layout_obj.name if layout_obj else "")
+    layout_matrix = frame.matrix
 
-    arm_data = bpy.data.armatures.new("Papercraft Rig")
-    arm = bpy.data.objects.new("Papercraft Rig", arm_data)
+    arm_data = bpy.data.armatures.new(f"{src_obj.name} Rig")
+    arm = bpy.data.objects.new(f"{src_obj.name} Rig", arm_data)
+    T.tag(arm, T.ROLE_RIG, src_obj)
     coll.objects.link(arm)
-    arm.show_in_front = False
     arm_data.display_type = "STICK"
     arm["fold"] = 0.0
     arm["assemble"] = 0.0
@@ -230,98 +357,89 @@ def build_rig(context, src, res, lay, include_tabs=True):
         ui = arm.id_properties_ui(prop)
         ui.update(min=0.0, max=1.0, soft_min=0.0, soft_max=1.0, description=desc)
 
-    mesh = bpy.data.meshes.new("Papercraft Folding")
-    folding = bpy.data.objects.new("Papercraft Folding", mesh)
+    mesh = bpy.data.meshes.new(f"{src_obj.name} Folding")
+    folding = bpy.data.objects.new(f"{src_obj.name} Folding", mesh)
+    T.tag(folding, T.ROLE_FOLDING, src_obj)
     coll.objects.link(folding)
 
-    # Previous mode bookkeeping for edit-bone creation.
-    view_layer = context.view_layer
-    prev_active = view_layer.objects.active
-    prev_mode = context.mode
-    if prev_mode != "OBJECT":
-        bpy.ops.object.mode_set(mode="OBJECT")
-    view_layer.objects.active = arm
-    arm.select_set(True)
-    bpy.ops.object.mode_set(mode="EDIT")
-
-    world_pts = {}  # (island, face) -> [Vector]
+    world_pts = {}
     for isl in res.islands:
         page = lay.placements[isl.index].page
         for f in isl.faces:
-            world_pts[f] = [frame.to_rig(page, p) for p in lay.face_points(res, isl, f)]
+            world_pts[f] = [
+                frame.to_rig(page, p, layout_matrix) for p in lay.face_points(res, isl, f)
+            ]
 
-    bone_of_face = {}
-    hinges = []  # (bone name, angle)
-    roots = []  # (bone name, island)
-    ebones = arm_data.edit_bones
-    min_len = 1e-4 * frame.unit
-    for isl in res.islands:
-        for f in isl.order:
-            face = res.faces[f]
-            name = f"F{f}"
-            eb = ebones.new(name)
-            if f == isl.root:
-                c = sum(world_pts[f], Vector()) / len(world_pts[f])
-                eb.head = c
-                eb.tail = c + Vector((0.0, 0.0, 10.0 * frame.unit))
-                roots.append((name, isl))
-            else:
-                p, i, j, angle = isl.parent[f]
-                P = res.faces[p]
-                eb.head = world_pts[p][P.loop.index(i)]
-                eb.tail = world_pts[p][P.loop.index(j)]
-                if (eb.tail - eb.head).length < min_len:
-                    eb.tail = eb.head + (eb.tail - eb.head).normalized() * min_len
-                eb.parent = ebones[bone_of_face[p]]
-                hinges.append((name, angle))
-            eb.roll = 0.0
-            bone_of_face[f] = name
+    view_layer = context.view_layer
+    for o in context.selected_objects:
+        o.select_set(False)
+    view_layer.objects.active = arm
+    arm.select_set(True)
+    bone_of_face, hinges, roots, tab_bones = {}, [], [], []
+    bpy.ops.object.mode_set(mode="EDIT")
+    try:
+        ebones = arm_data.edit_bones
+        min_len = 1e-4 * frame.unit
+        for isl in res.islands:
+            for f in isl.order:
+                name = f"F{f}"
+                eb = ebones.new(name)
+                if f == isl.root:
+                    c = sum(world_pts[f], Vector()) / len(world_pts[f])
+                    eb.head = c
+                    eb.tail = c + Vector((0.0, 0.0, 10.0 * frame.unit))
+                    roots.append((name, isl))
+                else:
+                    p, i, j, angle = isl.parent[f]
+                    P = res.faces[p]
+                    eb.head = world_pts[p][P.loop.index(i)]
+                    eb.tail = world_pts[p][P.loop.index(j)]
+                    if (eb.tail - eb.head).length < min_len:
+                        eb.tail = eb.head + (eb.tail - eb.head).normalized() * min_len
+                    eb.parent = ebones[bone_of_face[p]]
+                    hinges.append((name, angle))
+                eb.roll = 0.0
+                bone_of_face[f] = name
+        if include_tabs:
+            for n, tab in enumerate(lay.tabs):
+                face = res.faces[tab.face]
+                k = tab.corner
+                name = f"T{n}"
+                eb = ebones.new(name)
+                eb.head = world_pts[tab.face][k]
+                eb.tail = world_pts[tab.face][(k + 1) % len(face.loop)]
+                eb.parent = ebones[bone_of_face[tab.face]]
+                info = res.edges[_key(face, k)]
+                tab_bones.append((name, tab))
+                hinges.append((name, info.angle))
+        rest = {eb.name: eb.matrix.copy() for eb in ebones}
+    finally:
+        bpy.ops.object.mode_set(mode="OBJECT")
 
-    tab_bones = []
-    if include_tabs:
-        for n, tab in enumerate(lay.tabs):
-            isl = res.islands[tab.island]
-            face = res.faces[tab.face]
-            k = tab.corner
-            a = world_pts[tab.face][k]
-            b = world_pts[tab.face][(k + 1) % len(face.loop)]
-            name = f"T{n}"
-            eb = ebones.new(name)
-            eb.head, eb.tail = a, b
-            eb.parent = ebones[bone_of_face[tab.face]]
-            info = res.edges[_key(face, k)]
-            tab_bones.append((name, tab, info.angle))
-            hinges.append((name, info.angle))
-
-    rest = {eb.name: eb.matrix.copy() for eb in ebones}
-    bpy.ops.object.mode_set(mode="OBJECT")
-
-    # Drivers on hinge rotations.
     for name, angle in hinges:
         pb = arm.pose.bones[name]
         pb.rotation_mode = "XYZ"
         _add_driver(pb, "rotation_euler", 1, arm, "fold", angle)
 
-    # Root bones: blend towards the model's pose with a Copy Transforms.
     for name, isl in roots:
         f = isl.root
         face = res.faces[f]
         model_pts = [Vector(src.verts[v]) for v in face.loop]
         k = _best_corner(model_pts)
-        T = _frame_from_points(model_pts, k) @ _frame_from_points(world_pts[f], k).inverted()
-        target = bpy.data.objects.new(f"Papercraft Target I{isl.index}", None)
+        M = _frame_from_points(model_pts, k) @ _frame_from_points(world_pts[f], k).inverted()
+        target = bpy.data.objects.new(f"{src_obj.name} Target {isl.index}", None)
+        T.tag(target, T.ROLE_TARGET, src_obj)
         target.empty_display_type = "PLAIN_AXES"
         target.empty_display_size = 0.0
         target.hide_select = True
         coll.objects.link(target)
-        target.matrix_world = T @ rest[name]
+        target.matrix_world = M @ rest[name]
         con = arm.pose.bones[name].constraints.new("COPY_TRANSFORMS")
         con.target = target
         con.influence = 0.0
         _add_driver(con, "influence", -1, arm, "assemble", 1.0)
 
-    # Skinned mesh: every face/tab gets its own vertices on its own bone.
-    verts, faces, groups, mat_idx, uvs = [], [], [], [], []
+    verts, faces, groups, mat_idx, corners = [], [], [], [], []
     for isl in res.islands:
         for f in isl.order:
             face = res.faces[f]
@@ -330,25 +448,24 @@ def build_rig(context, src, res, lay, include_tabs=True):
             faces.append(list(range(base, base + len(face.loop))))
             groups.append(bone_of_face[f])
             mat_idx.append(face.material)
-            uvs.append(_face_uv(src, face) or [(0.0, 0.0)] * len(face.loop))
+            corners.append(face)
     tab_slot = len(src.mat_list)
-    for name, tab, _ in tab_bones:
+    for name, tab in tab_bones:
         page = lay.placements[tab.island].page
-        pts = [frame.to_rig(page, p) for p in lay.tab_points(tab)]
+        pts = [frame.to_rig(page, p, layout_matrix) for p in lay.tab_points(tab)]
         base = len(verts)
         verts.extend(pts)
         faces.append(list(range(base, base + len(pts))))
         groups.append(name)
         mat_idx.append(tab_slot)
-        uvs.append([(0.0, 0.0)] * len(pts))
+        corners.append(len(pts))
 
     mesh.from_pydata([tuple(v) for v in verts], [], faces)
     for m in src.mat_list:
         mesh.materials.append(m)
     mesh.materials.append(_material("Papercraft Tab", (0.85, 0.80, 0.70, 1.0)))
     mesh.polygons.foreach_set("material_index", mat_idx)
-    uv_layer = mesh.uv_layers.new(name="UVMap")
-    uv_layer.data.foreach_set("uv", [c for poly in uvs for uv in poly for c in uv])
+    write_corner_layers(mesh, src, corners)
     mesh.update()
     vgroups = {}
     for poly, gname in zip(mesh.polygons, groups):
@@ -360,20 +477,24 @@ def build_rig(context, src, res, lay, include_tabs=True):
     mod.object = arm
     folding.parent = arm
 
-    # Restore selection / mode.
+    arm["papercraft_signature"] = rig_signature(entry)
+    if saved_anim:
+        arm["fold"] = saved_anim["fold"]
+        arm["assemble"] = saved_anim["assemble"]
+        if saved_anim["action"] is not None:
+            ad = arm.animation_data_create()
+            ad.action = saved_anim["action"]
+            slot = saved_anim["slot"]
+            if slot is not None and hasattr(ad, "action_slot"):
+                try:
+                    ad.action_slot = slot
+                except (TypeError, RuntimeError, ReferenceError):
+                    pass
+            saved_anim["action"].use_fake_user = False
+
     arm.select_set(False)
-    if prev_active is not None and prev_active.name in view_layer.objects:
-        view_layer.objects.active = prev_active
-    if prev_mode == "EDIT_MESH" and prev_active is not None and prev_active.type == "MESH":
-        bpy.ops.object.mode_set(mode="EDIT")
+    restore_mode(context, saved_mode)
     return arm, folding
-
-
-def _face_uv(src, face):
-    if not src.uvs or face.source >= len(src.uvs):
-        return None
-    poly_uv = src.uvs[face.source]
-    return [poly_uv[c] for c in face.corners]
 
 
 def _key(face, k):
@@ -391,4 +512,3 @@ def keyframe_animation(arm, start, fold_end, assemble_end):
             arm.keyframe_insert(data_path=f'["{prop}"]', frame=frame)
     arm["fold"] = 0.0
     arm["assemble"] = 0.0
-

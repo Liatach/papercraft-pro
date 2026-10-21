@@ -6,104 +6,150 @@ from bpy.props import IntProperty, StringProperty
 from bpy_extras.io_utils import ExportHelper
 
 from . import build, live
+from . import targets as T
 from .core.svg import export_pages
 from .textures import textures_for
 
 
-def _need_source(context):
-    props = context.scene.papercraft
-    return props.source is not None
+def _target(context):
+    return T.target(context)
 
 
-class PAPERCRAFT_OT_use_active(bpy.types.Operator):
-    bl_idname = "papercraft.use_active"
-    bl_label = "Use Active Object"
-    bl_description = "Unfold the active mesh object"
-    bl_options = {"REGISTER", "UNDO"}
-
+class _NeedsModel:
     @classmethod
     def poll(cls, context):
-        obj = context.active_object
-        return obj is not None and obj.type == "MESH" and not obj.name.startswith("Papercraft ")
-
-    def execute(self, context):
-        context.scene.papercraft.source = context.active_object
-        return {"FINISHED"}
+        return _target(context) is not None
 
 
-class PAPERCRAFT_OT_unfold(bpy.types.Operator):
+class PAPERCRAFT_OT_unfold(_NeedsModel, bpy.types.Operator):
     bl_idname = "papercraft.unfold"
     bl_label = "Unfold"
-    bl_description = "Unfold the model and lay the pieces out on pages beside it"
+    bl_description = "Unfold this model and lay its pieces out on pages beside it"
     bl_options = {"REGISTER", "UNDO"}
 
-    @classmethod
-    def poll(cls, context):
-        return _need_source(context)
-
     def execute(self, context):
-        entry = live.get_or_build(context, force=True)
+        obj = _target(context)
+        obj.papercraft.role = T.ROLE_SOURCE
+        entry = live.get_or_build(context, obj, force=True)
         if entry is None:
-            self.report({"WARNING"}, context.scene.papercraft.info_message)
+            self.report({"WARNING"}, obj.papercraft.info_message or "Nothing to unfold")
             return {"CANCELLED"}
-        props = context.scene.papercraft
         self.report(
             {"INFO"},
-            f"{len(entry.res.islands)} piece(s) on {entry.lay.page_count} page(s), "
-            f"model {props.info_size_mm:.0f} mm",
+            f"{obj.name}: {len(entry.res.islands)} piece(s) on {entry.lay.page_count} "
+            f"page(s), model {obj.papercraft.info_size_mm:.0f} mm",
         )
         return {"FINISHED"}
 
 
-class PAPERCRAFT_OT_frame_layout(bpy.types.Operator):
+class PAPERCRAFT_OT_clear(_NeedsModel, bpy.types.Operator):
+    bl_idname = "papercraft.clear"
+    bl_label = "Remove Papercraft"
+    bl_description = "Delete this model's layout and fold rig (the model itself is untouched)"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        obj = _target(context)
+        saved = build.ensure_object_mode(context)
+        build.remove_rig(obj)
+        build.remove_layout(obj)
+        obj.papercraft.role = T.ROLE_NONE
+        obj.papercraft.live = False
+        obj.papercraft.info_islands = 0
+        obj.papercraft.info_message = ""
+        live.CACHE.pop(live._uid(obj), None)
+        context.view_layer.objects.active = obj
+        build.restore_mode(context, (obj.name, saved[1]))
+        return {"FINISHED"}
+
+
+class PAPERCRAFT_OT_frame_layout(_NeedsModel, bpy.types.Operator):
     bl_idname = "papercraft.frame_layout"
     bl_label = "Show Layout"
-    bl_description = "Look straight down at the paper layout in this viewport"
+    bl_description = "Look straight down at this model's paper layout in this viewport"
 
     @classmethod
     def poll(cls, context):
-        return context.area is not None and context.area.type == "VIEW_3D" and (
-            bpy.data.objects.get("Papercraft Layout") is not None
+        obj = _target(context)
+        return (
+            obj is not None
+            and context.area is not None
+            and context.area.type == "VIEW_3D"
+            and T.output(obj, T.ROLE_LAYOUT) is not None
         )
 
     def execute(self, context):
-        obj = bpy.data.objects["Papercraft Layout"]
-        if context.mode != "OBJECT":
-            self.report({"INFO"}, "Switch to Object Mode to frame the layout")
-            return {"CANCELLED"}
+        src = _target(context)
+        lay = T.output(src, T.ROLE_LAYOUT)
+        saved = build.ensure_object_mode(context)
         for o in context.selected_objects:
             o.select_set(False)
-        obj.hide_set(False)
-        obj.select_set(True)
-        context.view_layer.objects.active = obj
+        lay.hide_set(False)
+        lay.select_set(True)
+        context.view_layer.objects.active = lay
         bpy.ops.view3d.view_axis(type="TOP")
         bpy.ops.view3d.view_selected()
+        lay.select_set(False)
+        src.select_set(True)
+        context.view_layer.objects.active = src
+        build.restore_mode(context, (src.name, saved[1]))
         return {"FINISHED"}
 
 
-class PAPERCRAFT_OT_build_rig(bpy.types.Operator):
+class PAPERCRAFT_OT_reset_layout(_NeedsModel, bpy.types.Operator):
+    bl_idname = "papercraft.reset_layout"
+    bl_label = "Reset Layout Position"
+    bl_description = "Move the paper layout back beside the model"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        obj = _target(context)
+        entry = live.get_or_build(context, obj)
+        if entry is not None:
+            build.reset_layout_position(obj, entry)
+        return {"FINISHED"}
+
+
+class PAPERCRAFT_OT_build_rig(_NeedsModel, bpy.types.Operator):
     bl_idname = "papercraft.build_rig"
     bl_label = "Build Fold Rig"
     bl_description = (
-        "Create an armature with a driven hinge on every fold, so the sheet "
-        "can fold up and fly onto the model"
+        "Create (or rebuild) an armature with a driven hinge on every fold, so the "
+        "sheet can fold up and fly onto the model. Rebuilding keeps your keyframes"
     )
     bl_options = {"REGISTER", "UNDO"}
 
-    @classmethod
-    def poll(cls, context):
-        return _need_source(context)
-
     def execute(self, context):
-        entry = live.get_or_build(context)
+        obj = _target(context)
+        entry = live.get_or_build(context, obj)
         if entry is None:
             return {"CANCELLED"}
-        arm, _ = build.build_rig(context, entry.src, entry.res, entry.lay)
+        arm, _ = build.build_rig(context, obj, entry)
         self.report({"INFO"}, f"Rig built with {len(arm.data.bones)} hinges")
         return {"FINISHED"}
 
 
-class PAPERCRAFT_OT_animate(bpy.types.Operator):
+class PAPERCRAFT_OT_remove_rig(_NeedsModel, bpy.types.Operator):
+    bl_idname = "papercraft.remove_rig"
+    bl_label = "Remove Fold Rig"
+    bl_description = "Delete this model's fold rig and folding mesh"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = _target(context)
+        return obj is not None and T.output(obj, T.ROLE_RIG) is not None
+
+    def execute(self, context):
+        obj = _target(context)
+        saved = build.ensure_object_mode(context)
+        build.remove_rig(obj)
+        context.view_layer.objects.active = obj
+        build.restore_mode(context, (obj.name, saved[1]))
+        return {"FINISHED"}
+
+
+class PAPERCRAFT_OT_animate(_NeedsModel, bpy.types.Operator):
     bl_idname = "papercraft.animate"
     bl_label = "Keyframe Fold Animation"
     bl_description = "Keyframe the rig: fold up from flat, then move onto the model"
@@ -115,14 +161,15 @@ class PAPERCRAFT_OT_animate(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return bpy.data.objects.get("Papercraft Rig") is not None
+        obj = _target(context)
+        return obj is not None and T.output(obj, T.ROLE_RIG) is not None
 
     def invoke(self, context, event):
         self.start = context.scene.frame_start
         return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
-        arm = bpy.data.objects["Papercraft Rig"]
+        arm = T.output(_target(context), T.ROLE_RIG)
         fold_end = self.start + self.fold_frames
         end = fold_end + self.assemble_frames
         build.keyframe_animation(arm, self.start, fold_end, end)
@@ -132,7 +179,7 @@ class PAPERCRAFT_OT_animate(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class PAPERCRAFT_OT_export_svg(bpy.types.Operator, ExportHelper):
+class PAPERCRAFT_OT_export_svg(_NeedsModel, bpy.types.Operator, ExportHelper):
     bl_idname = "papercraft.export_svg"
     bl_label = "Export SVG Pages"
     bl_description = "Write one SVG per page (print, or send to a cutting machine)"
@@ -140,56 +187,92 @@ class PAPERCRAFT_OT_export_svg(bpy.types.Operator, ExportHelper):
     filename_ext = ".svg"
     filter_glob: StringProperty(default="*.svg", options={"HIDDEN"})
 
-    @classmethod
-    def poll(cls, context):
-        return _need_source(context)
-
     def invoke(self, context, event):
-        src = context.scene.papercraft.source
+        src = _target(context)
         if src is not None and not self.filepath:
-            blend_dir = os.path.dirname(bpy.data.filepath) if bpy.data.filepath else os.path.expanduser("~")
+            blend_dir = (
+                os.path.dirname(bpy.data.filepath) if bpy.data.filepath else os.path.expanduser("~")
+            )
             self.filepath = os.path.join(blend_dir, f"{bpy.path.clean_name(src.name)}.svg")
         return super().invoke(context, event)
 
     def execute(self, context):
-        entry = live.get_or_build(context)
+        obj = _target(context)
+        entry = live.get_or_build(context, obj)
         if entry is None:
             return {"CANCELLED"}
-        props = context.scene.papercraft
-        textures = None
-        if props.fill_faces and props.print_textures:
-            textures = textures_for(entry.src.images, props.texture_max)
-        docs = export_pages(
-            entry.res,
-            entry.lay,
-            colors=entry.src.colors,
-            fill_faces=props.fill_faces,
-            numbers=props.numbers,
-            title=props.source.name,
-            textures=textures,
-            uvs=entry.src.uvs,
-            line_style=props.line_style,
-            line_darkness=props.line_darkness,
-            line_width=props.line_width,
-            fold_min_angle=props.fold_min_angle,
-            bleed=props.bleed,
-        )
-        base, ext = os.path.splitext(self.filepath)
-        written = []
-        for n, doc in enumerate(docs, 1):
-            path = self.filepath if len(docs) == 1 else f"{base}_page{n:02d}{ext}"
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write(doc)
-            written.append(path)
-        self.report({"INFO"}, f"Wrote {len(written)} page(s) to {os.path.dirname(self.filepath)}")
+        props = obj.papercraft
+        docs = write_pages(context, obj, entry, self.filepath, self)
+        if docs is None:
+            return {"CANCELLED"}
+        self.report({"INFO"}, f"Wrote {len(docs)} page(s) to {os.path.dirname(self.filepath)}")
+        props.info_message = props.info_message  # keep UI in sync
         return {"FINISHED"}
 
 
+def svg_documents(context, obj, entry, reporter=None):
+    props = obj.papercraft
+    mode = props.texture_mode
+    textures = uvs = page_images = None
+    if mode == "IMAGE":
+        textures = textures_for(entry.src.images, props.texture_max)
+        uvs = [entry.src.uv_layers.get(name) for name in entry.src.image_uvs]
+    elif mode == "BAKE":
+        from .bake import bake_pages
+
+        wm = context.window_manager
+        wm.progress_begin(0, max(entry.lay.page_count, 1))
+        try:
+            margin = props.tab_height + 1.0 if props.tab_texture else props.bleed + 0.2
+            page_images = bake_pages(
+                context, obj, entry,
+                dpi=props.bake_dpi, bake_pass=props.bake_pass, margin_mm=margin,
+                progress=wm.progress_update,
+            )
+        except RuntimeError as exc:
+            if reporter is not None:
+                reporter.report({"ERROR"}, f"Bake failed: {exc}")
+            return None
+        finally:
+            wm.progress_end()
+    return export_pages(
+        entry.res,
+        entry.lay,
+        colors=entry.src.colors,
+        fill_faces=mode != "WHITE",
+        numbers=props.numbers,
+        title=obj.name,
+        textures=textures,
+        uvs=uvs,
+        line_style=props.line_style,
+        line_darkness=props.line_darkness,
+        line_width=props.line_width,
+        fold_min_angle=props.fold_min_angle,
+        bleed=props.bleed,
+        page_images=page_images,
+        tab_texture=props.tab_texture and mode == "BAKE",
+    )
+
+
+def write_pages(context, obj, entry, filepath, reporter=None):
+    docs = svg_documents(context, obj, entry, reporter)
+    if docs is None:
+        return None
+    base, ext = os.path.splitext(filepath)
+    for n, doc in enumerate(docs, 1):
+        path = filepath if len(docs) == 1 else f"{base}_page{n:02d}{ext}"
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(doc)
+    return docs
+
+
 classes = (
-    PAPERCRAFT_OT_use_active,
     PAPERCRAFT_OT_unfold,
+    PAPERCRAFT_OT_clear,
     PAPERCRAFT_OT_frame_layout,
+    PAPERCRAFT_OT_reset_layout,
     PAPERCRAFT_OT_build_rig,
+    PAPERCRAFT_OT_remove_rig,
     PAPERCRAFT_OT_animate,
     PAPERCRAFT_OT_export_svg,
 )

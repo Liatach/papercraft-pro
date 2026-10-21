@@ -13,7 +13,8 @@ from gpu_extras.batch import batch_for_shader
 from mathutils import Vector
 from mathutils.geometry import intersect_point_line
 
-from . import live
+from . import build, live
+from . import targets as T
 from .core.unfold import KIND_FOLD, edge_key
 from .mesh_io import FLIP_ATTR, JOIN_ATTR
 
@@ -111,14 +112,13 @@ def edge_action(entry, key):
     return "cut" if info.kind == KIND_FOLD else "join"
 
 
-def pick(scene, entry, origin, direction):
+def pick(src_obj, entry, origin, direction):
     """What is under this ray? Returns a Pick or None."""
-    src_obj = scene.papercraft.source
     hits = []
     h = _ray_hit(src_obj, origin, direction)
     if h is not None:
         hits.append(("model",) + h)
-    lay_obj = bpy.data.objects.get("Papercraft Layout")
+    lay_obj = T.output(src_obj, T.ROLE_LAYOUT)
     h = _ray_hit(lay_obj, origin, direction)
     if h is not None:
         hits.append(("layout",) + h)
@@ -180,9 +180,9 @@ def _int_attr(mesh, name):
     return attr
 
 
-def apply_pick(scene, p):
+def apply_pick(src_obj, p):
     """Write the user's choice onto the source mesh. Returns True if changed."""
-    mesh = scene.papercraft.source.data
+    mesh = src_obj.data
     ei = _edge_index(mesh, p.key)
     if ei is None:
         return False
@@ -278,14 +278,17 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         return (
-            context.scene.papercraft.source is not None
+            T.target(context) is not None
             and context.area is not None
             and context.area.type == "VIEW_3D"
-            and context.mode == "OBJECT"
         )
 
     def invoke(self, context, event):
-        entry = live.get_or_build(context)
+        src_obj = T.target(context)
+        build.ensure_object_mode(context)  # cuts are written in Object Mode
+        context.view_layer.objects.active = src_obj
+        src_obj.papercraft.role = T.ROLE_SOURCE
+        entry = live.get_or_build(context, src_obj)
         if entry is None:
             return {"CANCELLED"}
         if not entry.src.topology_ok:
@@ -295,6 +298,7 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
                 "(apply or disable them first)",
             )
             return {"CANCELLED"}
+        self.src_name = src_obj.name
         self.entry = entry
         self.hover = None
         self.cut_segments = model_cut_segments(entry)
@@ -310,9 +314,21 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
         _redraw(context)
         return {"RUNNING_MODAL"}
 
+    @property
+    def src_obj(self):
+        return bpy.data.objects.get(self.src_name)
+
     def _finish(self, context):
         bpy.types.SpaceView3D.draw_handler_remove(self._handle, "WINDOW")
         context.workspace.status_text_set(None)
+        src_obj = self.src_obj
+        # Keep an existing fold rig in step with the new cuts (keyframes kept).
+        if self.changes and src_obj is not None and T.output(src_obj, T.ROLE_RIG) is not None:
+            try:
+                build.build_rig(context, src_obj, self.entry)
+                self.report({"INFO"}, "Fold rig rebuilt to match the new cuts")
+            except Exception as exc:  # never leave the user stuck in the tool
+                self.report({"WARNING"}, f"Rig not rebuilt: {exc}")
         _redraw(context)
 
     def _update_hover(self, context, event):
@@ -323,7 +339,8 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
         region, rv3d, coord = view
         origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, coord)
         direction = view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
-        self.hover = pick(context.scene, self.entry, origin, direction)
+        src_obj = self.src_obj
+        self.hover = pick(src_obj, self.entry, origin, direction) if src_obj else None
 
     def modal(self, context, event):
         if event.type in PASS_THROUGH_EVENTS:
@@ -334,9 +351,9 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
             return {"PASS_THROUGH"}
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
             self._update_hover(context, event)
-            if self.hover is not None and apply_pick(context.scene, self.hover):
+            if self.hover is not None and apply_pick(self.src_obj, self.hover):
                 entry = live.regenerate(
-                    context.scene, context.evaluated_depsgraph_get(), force=True
+                    context.scene, context.evaluated_depsgraph_get(), self.src_obj, force=True
                 )
                 if entry is not None:
                     self.entry = entry
@@ -349,6 +366,9 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
         if event.type in {"RIGHTMOUSE", "ESC"} and event.value == "PRESS":
             self._finish(context)
             return {"FINISHED"} if self.changes else {"CANCELLED"}
+        if self.src_obj is None:  # model deleted mid-edit
+            self._finish(context)
+            return {"CANCELLED"}
         return {"PASS_THROUGH"}
 
 

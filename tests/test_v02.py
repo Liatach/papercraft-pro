@@ -10,6 +10,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 import papercraft_unfold as addon  # noqa: E402
 from papercraft_unfold import editor, live  # noqa: E402
+from papercraft_unfold import targets as T  # noqa: E402
 from papercraft_unfold.core.svg import export_pages  # noqa: E402
 from papercraft_unfold.textures import textures_for  # noqa: E402
 
@@ -18,7 +19,6 @@ os.makedirs(OUT, exist_ok=True)
 bpy.ops.wm.read_factory_settings(use_empty=True)
 addon.register()
 scene = bpy.context.scene
-props = scene.papercraft
 
 
 def clear():
@@ -37,17 +37,18 @@ def textured_material(name, image):
 
 
 def unfold(obj, **settings):
-    props.source = obj
+    bpy.context.view_layer.objects.active = obj
     for k, v in settings.items():
-        setattr(props, k, v)
+        setattr(obj.papercraft, k, v)
     assert bpy.ops.papercraft.unfold() == {"FINISHED"}
-    return live.CACHE[scene.name]
+    return live.cached(obj)
 
 
 def export(entry, name, **kw):
     tex = textures_for(entry.src.images, 1024)
+    uvs = [entry.src.uv_layers.get(n) for n in entry.src.image_uvs]
     docs = export_pages(entry.res, entry.lay, colors=entry.src.colors, textures=tex,
-                        uvs=entry.src.uvs, title=name, **kw)
+                        uvs=uvs, title=name, **kw)
     for n, d in enumerate(docs, 1):
         xml.dom.minidom.parseString(d)
         with open(f"{OUT}/{name}_p{n}.svg", "w") as fh:
@@ -96,29 +97,29 @@ for p in me.polygons:
     up = abs(p.normal.z) > 0.5
     for li in p.loop_indices:
         col.data[li].color = (1, 0, 0, 1) if up else (0, 0, 1, 1)
-props.cut_colors = True
+cube.papercraft.cut_colors = True
 entry = unfold(cube)
 print("colour cuts -> pieces", len(entry.res.islands), "| rule cuts", entry.src.rule_cuts)
 assert len(entry.res.islands) == 3, len(entry.res.islands)
-props.cut_colors = False
+cube.papercraft.cut_colors = False
 
 for m in ("a", "b"):
     me.materials.append(bpy.data.materials.new(m))
 me.polygons[0].material_index = 1
-props.cut_materials = True
+cube.papercraft.cut_materials = True
 entry = unfold(cube)
 print("material cuts -> pieces", len(entry.res.islands))
 assert len(entry.res.islands) == 2
-props.cut_materials = False
+cube.papercraft.cut_materials = False
 
 sharp = me.attributes.get("sharp_edge") or me.attributes.new("sharp_edge", "BOOLEAN", "EDGE")
 for e in me.edges:
     sharp.data[e.index].value = True
-props.cut_sharp = True
+cube.papercraft.cut_sharp = True
 entry = unfold(cube)
 print("sharp cuts -> pieces", len(entry.res.islands))
 assert len(entry.res.islands) == 6
-props.cut_sharp = False
+cube.papercraft.cut_sharp = False
 for e in me.edges:
     sharp.data[e.index].value = False
 
@@ -126,21 +127,21 @@ for e in me.edges:
 entry = unfold(cube)
 assert len(entry.res.islands) == 1
 # Ray straight down onto the top face of the cube, near its +X edge.
-p = editor.pick(scene, entry, Vector((0.95, 0.0, 5.0)), Vector((0, 0, -1)))
+p = editor.pick(cube, entry, Vector((0.95, 0.0, 5.0)), Vector((0, 0, -1)))
 print("model pick:", p.action, p.key, "highlights", len(p.segments))
 before = entry.res.edges[p.key].kind
 assert p.action == ("cut" if before == "fold" else "join")
-assert editor.apply_pick(scene, p)
-entry = live.regenerate(scene, bpy.context.evaluated_depsgraph_get(), force=True)
+assert editor.apply_pick(cube, p)
+entry = live.regenerate(scene, bpy.context.evaluated_depsgraph_get(), cube, force=True)
 after = entry.res.edges[p.key].kind
 print("edge", before, "->", after)
 assert after != before
 
 # Click again: it toggles back.
-p2 = editor.pick(scene, entry, Vector((0.95, 0.0, 5.0)), Vector((0, 0, -1)))
+p2 = editor.pick(cube, entry, Vector((0.95, 0.0, 5.0)), Vector((0, 0, -1)))
 assert p2.action != p.action, (p.action, p2.action)
-editor.apply_pick(scene, p2)
-entry = live.regenerate(scene, bpy.context.evaluated_depsgraph_get(), force=True)
+editor.apply_pick(cube, p2)
+entry = live.regenerate(scene, bpy.context.evaluated_depsgraph_get(), cube, force=True)
 assert entry.res.edges[p.key].kind == before
 print("toggled back ok:", p2.action)
 
@@ -149,12 +150,12 @@ tab = entry.lay.tabs[0]
 page = entry.lay.placements[tab.island].page
 tp = entry.lay.tab_points(tab)
 centre = Vector(entry.frame.to_world(page, (sum(x for x, _ in tp) / 4, sum(y for _, y in tp) / 4), 1.0))
-pt = editor.pick(scene, entry, centre + Vector((0, 0, 5)), Vector((0, 0, -1)))
+pt = editor.pick(cube, entry, centre + Vector((0, 0, 5)), Vector((0, 0, -1)))
 print("layout pick:", pt.action if pt else None)
 assert pt is not None and pt.action == "flip"
 side_before = (tab.face, tab.corner)
-editor.apply_pick(scene, pt)
-entry = live.regenerate(scene, bpy.context.evaluated_depsgraph_get(), force=True)
+editor.apply_pick(cube, pt)
+entry = live.regenerate(scene, bpy.context.evaluated_depsgraph_get(), cube, force=True)
 moved = [t for t in entry.lay.tabs if t.number == tab.number][0]
 print("tab side", side_before, "->", (moved.face, moved.corner))
 assert (moved.face, moved.corner) != side_before
@@ -167,7 +168,7 @@ cx = sum(x for x, _ in pts) / len(pts)
 cy = sum(y for _, y in pts) / len(pts)
 k_mid = ((pts[0][0] + pts[1][0]) / 2 * 0.8 + cx * 0.2, (pts[0][1] + pts[1][1]) / 2 * 0.8 + cy * 0.2)
 w = Vector(entry.frame.to_world(entry.lay.placements[isl.index].page, k_mid, 1.0))
-pf = editor.pick(scene, entry, w + Vector((0, 0, 5)), Vector((0, 0, -1)))
+pf = editor.pick(cube, entry, w + Vector((0, 0, 5)), Vector((0, 0, -1)))
 print("layout edge pick:", pf.action, pf.key, "segments", len(pf.segments))
 assert pf.action in ("cut", "join")
 
