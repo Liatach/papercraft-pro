@@ -1,18 +1,43 @@
-# Papercraft Unfold
+# Papercraft Pro
 
-A Blender extension (4.2+) that unfolds a mesh into printable papercraft
-pieces with glue tabs, lays them out live on standard pages beside the model,
-exports print/cut-ready SVG pages, and builds a hinge rig that animates the
-sheet folding up into the model.
+**Unfold Blender models into printable papercraft: glue tabs, live page
+layout, cutter-ready SVGs and an animated fold rig.**
+
+![Papercraft Pro: a model half unfolded onto printer paper](docs/images/hero.png)
+
+A Blender extension (4.2+) that unfolds a mesh into papercraft pieces with
+glue tabs, lays them out live on standard pages beside the model, exports
+print- and cut-ready SVG pages (including Cricut cut/score files), and
+builds a hinge rig that animates the sheet folding up into the model.
 
 By Kim Lang / Liatach Makes. Written from scratch; GPL-3.0-or-later.
 
+## Features
+
+* **One-click unfold** with automatic cut placement: fewest pieces, seams
+  tucked into valley creases, no overlapping pieces.
+* **Edit Cuts**: hover and click edges on the model *or* the paper to cut and
+  join, Pepakura style. Click tabs to swap sides; Shift+click for outside tabs.
+* **Cut rules**: seams, material boundaries, painted colour regions, sharp edges.
+* **Live layout** on A4, Letter and other page sizes, updating as you edit.
+* **Prints what you see**: Cycles bakes any material (image textures, Paint
+  System layers, procedurals, vertex colour) onto the pages, with bleed.
+* **Cutting machines**: export cut lines, crease lines, or both, for Cricut
+  and similar.
+* **Fold animation**: a hinge rig folds the printed sheet up and assembles it
+  onto the model, ready to keyframe.
+
+![The fold rig folding a sheet up into the model](docs/images/unfold.gif)
+
 ## Install
 
-1. Download the latest `papercraft_unfold-x.y.z.zip` from Releases, or build
-   it with `scripts/build.sh`.
+1. Download the latest `papercraft_pro-x.y.z.zip` from
+   [Releases](../../releases), or build it with `scripts/build.sh`.
 2. In Blender: **Edit → Preferences → Get Extensions → ⌄ → Install from Disk**.
 3. Open the sidebar (**N**) in the 3D view and pick the **Papercraft** tab.
+
+Upgrading from the earlier *Papercraft Unfold* builds? Uninstall that first;
+your models' cuts and settings carry over.
 
 ## Use
 
@@ -128,7 +153,7 @@ colour layers, so the model's materials preview correctly on the pages.
 
 ## Development
 
-The geometry core (`papercraft_unfold/core`) is pure Python and runs
+The geometry core (`papercraft_pro/core`) is pure Python and runs
 outside Blender:
 
 ```bash
@@ -145,3 +170,8 @@ python tests/test_v06.py           # cutter exports, clean Full Render bakes
 
 * Drag pieces around the page; PDF export
 * Pop-up mechanism design add-on built on the same hinge rig
+
+## Licence
+
+GPL-3.0-or-later, see [LICENSE](LICENSE). Blender is a trademark of the
+Blender Foundation; this add-on is not affiliated with or endorsed by it.

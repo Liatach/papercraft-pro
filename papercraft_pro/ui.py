@@ -20,7 +20,7 @@ class _Child(_Base):
 
 
 class PAPERCRAFT_PT_main(_Base, bpy.types.Panel):
-    bl_label = "Papercraft Unfold"
+    bl_label = "Papercraft Pro"
 
     def draw(self, context):
         layout = self.layout

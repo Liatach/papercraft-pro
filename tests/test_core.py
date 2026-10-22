@@ -10,13 +10,13 @@ import numpy as np
 import types  # noqa: E402
 
 # Import the core without running the add-on's bpy-dependent __init__.
-_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "papercraft_unfold")
-_pkg = types.ModuleType("papercraft_unfold")
+_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "papercraft_pro")
+_pkg = types.ModuleType("papercraft_pro")
 _pkg.__path__ = [_root]
-sys.modules.setdefault("papercraft_unfold", _pkg)
-from papercraft_unfold.core import geom as g  # noqa: E402
-from papercraft_unfold.core.layout import compute_layout  # noqa: E402
-from papercraft_unfold.core.unfold import unfold  # noqa: E402
+sys.modules.setdefault("papercraft_pro", _pkg)
+from papercraft_pro.core import geom as g  # noqa: E402
+from papercraft_pro.core.layout import compute_layout  # noqa: E402
+from papercraft_pro.core.unfold import unfold  # noqa: E402
 
 
 def cube():

@@ -9,11 +9,11 @@ from mathutils import Vector
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-import papercraft_unfold as addon  # noqa: E402
-from papercraft_unfold import build, editor, live  # noqa: E402
-from papercraft_unfold import targets as T  # noqa: E402
-from papercraft_unfold.mesh_io import material_image  # noqa: E402
-from papercraft_unfold.ops import svg_documents  # noqa: E402
+import papercraft_pro as addon  # noqa: E402
+from papercraft_pro import build, editor, live  # noqa: E402
+from papercraft_pro import targets as T  # noqa: E402
+from papercraft_pro.mesh_io import material_image  # noqa: E402
+from papercraft_pro.ops import svg_documents  # noqa: E402
 
 OUT = os.path.join(ROOT, "tests", "out")
 os.makedirs(OUT, exist_ok=True)
@@ -292,7 +292,7 @@ count = len(nt.nodes)
 box.papercraft.bake_dpi = 60
 entry = unfold(box, texture_mode="BAKE", bake_pass="AUTO")
 svg_documents(ctx, box, entry)
-from papercraft_unfold import bake as bake_mod  # noqa: E402
+from papercraft_pro import bake as bake_mod  # noqa: E402
 after = [(n.name, n.is_active_output) for n in nt.nodes if n.type == "OUTPUT_MATERIAL"]
 print("outputs before/after:", before, after, "| auto pass:", bake_mod.bake_pages.last_pass)
 assert before == after and len(nt.nodes) == count, "bake modified the user's material"

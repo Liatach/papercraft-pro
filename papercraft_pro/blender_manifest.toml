@@ -1,9 +1,9 @@
 schema_version = "1.0.0"
 
-id = "papercraft_unfold"
-version = "0.6.0"
-name = "Papercraft Unfold"
-tagline = "Papercraft unfolding with glue tabs, page layout and fold rig"
+id = "papercraft_pro"
+version = "0.7.0"
+name = "Papercraft Pro"
+tagline = "Unfold models into printable papercraft, with tabs and fold rig"
 maintainer = "Kim Lang (Liatach Makes)"
 type = "add-on"
 

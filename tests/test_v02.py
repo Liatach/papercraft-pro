@@ -8,11 +8,11 @@ from mathutils import Vector
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-import papercraft_unfold as addon  # noqa: E402
-from papercraft_unfold import editor, live  # noqa: E402
-from papercraft_unfold import targets as T  # noqa: E402
-from papercraft_unfold.core.svg import export_pages  # noqa: E402
-from papercraft_unfold.textures import textures_for  # noqa: E402
+import papercraft_pro as addon  # noqa: E402
+from papercraft_pro import editor, live  # noqa: E402
+from papercraft_pro import targets as T  # noqa: E402
+from papercraft_pro.core.svg import export_pages  # noqa: E402
+from papercraft_pro.textures import textures_for  # noqa: E402
 
 OUT = os.path.join(ROOT, "tests", "out")
 os.makedirs(OUT, exist_ok=True)

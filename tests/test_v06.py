@@ -9,10 +9,10 @@ import bpy
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-import papercraft_unfold as addon  # noqa: E402
-from papercraft_unfold import live  # noqa: E402
-from papercraft_unfold.core.geom import interior_point  # noqa: E402
-from papercraft_unfold.ops import svg_documents  # noqa: E402
+import papercraft_pro as addon  # noqa: E402
+from papercraft_pro import live  # noqa: E402
+from papercraft_pro.core.geom import interior_point  # noqa: E402
+from papercraft_pro.ops import svg_documents  # noqa: E402
 
 OUT = os.path.join(ROOT, "tests", "out", "v06")
 os.makedirs(OUT, exist_ok=True)

@@ -10,12 +10,12 @@ import bpy
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-import papercraft_unfold as addon  # noqa: E402
-from papercraft_unfold import live  # noqa: E402
-from papercraft_unfold import targets as T  # noqa: E402
-from papercraft_unfold.core import geom as g  # noqa: E402
-from papercraft_unfold.core import layout as L  # noqa: E402
-from papercraft_unfold.core import unfold as U  # noqa: E402
+import papercraft_pro as addon  # noqa: E402
+from papercraft_pro import live  # noqa: E402
+from papercraft_pro import targets as T  # noqa: E402
+from papercraft_pro.core import geom as g  # noqa: E402
+from papercraft_pro.core import layout as L  # noqa: E402
+from papercraft_pro.core import unfold as U  # noqa: E402
 
 
 def mesh_data(obj):
