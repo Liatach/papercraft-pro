@@ -60,7 +60,9 @@ like; selecting a layout or rig jumps to its model.
    **Shift+click** a tab to glue it on the *outside*: an outside tab is
    printed with the art of the face it covers (in every print mode, the
    layout preview and the fold rig) and carries no glue number. Works across
-   split viewports. Right-click or Esc when done.
+   split viewports. Finish with Right-click, Esc or the **Done Editing**
+   button; clicks on the sidebar and other editors work normally meanwhile.
+   Going into Edit Mode or hitting an error also ends the tool cleanly.
 5. **Fold Animation → Build Fold Rig**: a printed-side-up copy of the sheet
    appears in front of the layout. **Fold** folds each piece up and turns it
    the right way up, standing beside the layout; **Assemble** slides the
@@ -164,6 +166,7 @@ python tests/test_v03.py           # several models, rig rebuilds, baking
 python tests/test_v04.py           # cutting order, tab rules
 python tests/test_v05.py           # outside tabs, tab fold direction
 python tests/test_v06.py           # cutter exports, clean Full Render bakes
+python tests/test_v07.py           # Edit Cuts always exits cleanly
 ```
 
 ## Roadmap

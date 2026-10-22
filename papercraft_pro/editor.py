@@ -215,7 +215,39 @@ def model_cut_segments(entry):
 
 
 # ----------------------------------------------------------------- drawing
+# The running tool, so the panel button can stop it and a file load can
+# never leave its highlight lines behind.
+_ACTIVE = {"op": None, "handle": None, "workspace": None, "stop": False}
+
+
+def is_running():
+    return _ACTIVE["op"] is not None
+
+
+def _remove_overlay():
+    handle, _ACTIVE["handle"] = _ACTIVE["handle"], None
+    if handle is not None:
+        try:
+            bpy.types.SpaceView3D.draw_handler_remove(handle, "WINDOW")
+        except (ValueError, RuntimeError):
+            pass
+    ws, _ACTIVE["workspace"] = _ACTIVE["workspace"], None
+    for w in {ws, getattr(bpy.context, "workspace", None)}:
+        if w is not None:
+            try:
+                w.status_text_set(None)
+            except (ReferenceError, AttributeError, RuntimeError):
+                pass
+    _ACTIVE["op"] = None
+    _ACTIVE["stop"] = False
+
+
 def _draw(op):
+    try:
+        cut_segments, hover = op.cut_segments, op.hover
+    except Exception:  # the tool ended without cleaning up: drop the overlay
+        _remove_overlay()
+        return
     try:
         shader = gpu.shader.from_builtin("POLYLINE_UNIFORM_COLOR")
     except (ValueError, SystemError):
@@ -235,27 +267,42 @@ def _draw(op):
         shader.uniform_float("color", color)
         batch.draw(shader)
 
-    lines(op.cut_segments, COLORS["seam"], 2.0)
-    gpu.state.depth_test_set("NONE")
-    if op.hover is not None:
-        lines(op.hover.segments, COLORS[op.hover.action], 5.0)
-    gpu.state.depth_test_set("NONE")
-    gpu.state.blend_set("NONE")
+    try:
+        lines(cut_segments, COLORS["seam"], 2.0)
+        gpu.state.depth_test_set("NONE")
+        if hover is not None:
+            lines(hover.segments, COLORS[hover.action], 5.0)
+    finally:
+        gpu.state.depth_test_set("NONE")
+        gpu.state.blend_set("NONE")
+
+
+def _region_under_mouse(context, event):
+    """(area, region) under the mouse in this window, preferring the
+    overlapping sidebar/toolbar/header regions over the 3D view itself."""
+    for area in context.window.screen.areas:
+        if not (area.x <= event.mouse_x < area.x + area.width
+                and area.y <= event.mouse_y < area.y + area.height):
+            continue
+        hit = None
+        for region in area.regions:
+            if (region.width > 1 and region.height > 1
+                    and region.x <= event.mouse_x < region.x + region.width
+                    and region.y <= event.mouse_y < region.y + region.height):
+                if region.type != "WINDOW":
+                    return area, region
+                hit = region
+        return area, hit
+    return None, None
 
 
 def _view_under_mouse(context, event):
-    """(region, rv3d, local coords) of the 3D view under the mouse."""
-    for area in context.window.screen.areas:
-        if area.type != "VIEW_3D":
-            continue
-        for region in area.regions:
-            if region.type != "WINDOW":
-                continue
-            x = event.mouse_x - region.x
-            y = event.mouse_y - region.y
-            if 0 <= x < region.width and 0 <= y < region.height:
-                return region, area.spaces.active.region_3d, (x, y)
-    return None
+    """(region, rv3d, local coords) of the 3D view under the mouse, or None
+    when the mouse is over a panel, header or another editor."""
+    area, region = _region_under_mouse(context, event)
+    if area is None or region is None or area.type != "VIEW_3D" or region.type != "WINDOW":
+        return None
+    return region, area.spaces.active.region_3d, (event.mouse_x - region.x, event.mouse_y - region.y)
 
 
 def _redraw(context):
@@ -276,12 +323,15 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
     bl_description = (
         "Click edges on the model or the paper layout to cut or join them; "
         "click a tab to move it to the other side; Shift+click a tab to glue it "
-        "on the outside (printed with the art it covers)"
+        "on the outside (printed with the art it covers). Press again, "
+        "right-click or Esc to finish"
     )
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
+        if is_running():
+            return True  # the button doubles as "Done"
         return (
             T.target(context) is not None
             and context.area is not None
@@ -289,6 +339,11 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
         )
 
     def invoke(self, context, event):
+        if is_running():  # pressed again: tell the running tool to finish
+            _ACTIVE["stop"] = True
+            _redraw(context)
+            return {"CANCELLED"}
+        _remove_overlay()  # stale leftovers from a crashed session, if any
         src_obj = T.target(context)
         build.ensure_object_mode(context)  # cuts are written in Object Mode
         context.view_layer.objects.active = src_obj
@@ -308,13 +363,16 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
         self.hover = None
         self.cut_segments = model_cut_segments(entry)
         self.changes = 0
-        self._handle = bpy.types.SpaceView3D.draw_handler_add(
+        _ACTIVE["op"] = self
+        _ACTIVE["stop"] = False
+        _ACTIVE["handle"] = bpy.types.SpaceView3D.draw_handler_add(
             _draw, (self,), "WINDOW", "POST_VIEW"
         )
+        _ACTIVE["workspace"] = context.workspace
         context.window_manager.modal_handler_add(self)
         context.workspace.status_text_set(
-            "Click edge: cut / join  ·  Click tab: other side of the seam  ·  "
-            "Shift+click tab: glue inside / outside  ·  Right-click / Esc: done"
+            "Edit Cuts — click edge: cut / join  ·  click tab: other side of the seam  ·  "
+            "Shift+click tab: inside / outside  ·  Right-click / Esc / Done button: finish"
         )
         _redraw(context)
         return {"RUNNING_MODAL"}
@@ -324,17 +382,29 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
         return bpy.data.objects.get(self.src_name)
 
     def _finish(self, context):
-        bpy.types.SpaceView3D.draw_handler_remove(self._handle, "WINDOW")
-        context.workspace.status_text_set(None)
+        _remove_overlay()
         src_obj = self.src_obj
         # Keep an existing fold rig in step with the new cuts (keyframes kept).
         if self.changes and src_obj is not None and T.output(src_obj, T.ROLE_RIG) is not None:
             try:
-                build.build_rig(context, src_obj, self.entry)
+                entry = live.cached(src_obj) or live.get_or_build(context, src_obj)
+                build.build_rig(context, src_obj, entry)
                 self.report({"INFO"}, "Fold rig rebuilt to match the new cuts")
             except Exception as exc:  # never leave the user stuck in the tool
                 self.report({"WARNING"}, f"Rig not rebuilt: {exc}")
         _redraw(context)
+        return {"FINISHED"} if self.changes else {"CANCELLED"}
+
+    def _refresh_entry(self, context):
+        """Undo/redo drop the cache: rebuild so picks match the mesh again."""
+        src_obj = self.src_obj
+        if live.cached(src_obj) is self.entry:
+            return
+        entry = live.cached(src_obj) or live.get_or_build(context, src_obj)
+        if entry is not None:
+            self.entry = entry
+            self.cut_segments = model_cut_segments(entry)
+            self.hover = None
 
     def _update_hover(self, context, event):
         view = _view_under_mouse(context, event)
@@ -350,17 +420,43 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
             self.hover.action = "outer"  # Shift: glue inside <-> outside
 
     def modal(self, context, event):
+        try:
+            return self._modal(context, event)
+        except Exception as exc:  # an error must end the tool, not strand it
+            import traceback
+            traceback.print_exc()
+            self.report({"ERROR"}, f"Edit Cuts stopped: {exc}")
+            self._finish(context)
+            return {"CANCELLED"}
+
+    def _modal(self, context, event):
+        src_obj = self.src_obj
+        if _ACTIVE["stop"] or _ACTIVE["op"] is not self:
+            return self._finish(context)
+        if src_obj is None or src_obj.mode != "OBJECT":
+            # Model deleted, or the user went into Edit/Paint mode: finish
+            # cleanly (cuts are clicked in Object Mode).
+            return self._finish(context)
+        if event.type in {"RIGHTMOUSE", "ESC"} and event.value == "PRESS":
+            if _view_under_mouse(context, event) is None and event.type == "RIGHTMOUSE":
+                return {"PASS_THROUGH"}  # right-click menus on panels still work
+            return self._finish(context)
         if event.type in PASS_THROUGH_EVENTS:
             return {"PASS_THROUGH"}
+        self._refresh_entry(context)
         if event.type in {"MOUSEMOVE", "LEFT_SHIFT", "RIGHT_SHIFT"}:
             self._update_hover(context, event)
             _redraw(context)
             return {"PASS_THROUGH"}
-        if event.type == "LEFTMOUSE" and event.value == "PRESS":
+        if event.type == "LEFTMOUSE":
+            if _view_under_mouse(context, event) is None:
+                return {"PASS_THROUGH"}  # panels, headers, other editors
+            if event.value != "PRESS":
+                return {"RUNNING_MODAL"}
             self._update_hover(context, event)
-            if self.hover is not None and apply_pick(self.src_obj, self.hover):
+            if self.hover is not None and apply_pick(src_obj, self.hover):
                 entry = live.regenerate(
-                    context.scene, context.evaluated_depsgraph_get(), self.src_obj, force=True
+                    context.scene, context.evaluated_depsgraph_get(), src_obj, force=True
                 )
                 if entry is not None:
                     self.entry = entry
@@ -370,13 +466,15 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
                 self._update_hover(context, event)
                 _redraw(context)
             return {"RUNNING_MODAL"}
-        if event.type in {"RIGHTMOUSE", "ESC"} and event.value == "PRESS":
-            self._finish(context)
-            return {"FINISHED"} if self.changes else {"CANCELLED"}
-        if self.src_obj is None:  # model deleted mid-edit
-            self._finish(context)
-            return {"CANCELLED"}
         return {"PASS_THROUGH"}
+
+    def cancel(self, context):  # Blender cancelled us (window closed, file load)
+        _remove_overlay()
+
+
+@bpy.app.handlers.persistent
+def _on_load_pre(*_args):
+    _remove_overlay()
 
 
 classes = (PAPERCRAFT_OT_edit_cuts,)
@@ -385,8 +483,13 @@ classes = (PAPERCRAFT_OT_edit_cuts,)
 def register():
     for c in classes:
         bpy.utils.register_class(c)
+    if _on_load_pre not in bpy.app.handlers.load_pre:
+        bpy.app.handlers.load_pre.append(_on_load_pre)
 
 
 def unregister():
+    _remove_overlay()
+    if _on_load_pre in bpy.app.handlers.load_pre:
+        bpy.app.handlers.load_pre.remove(_on_load_pre)
     for c in reversed(classes):
         bpy.utils.unregister_class(c)

@@ -3,6 +3,17 @@ import bpy
 
 from . import build, live
 from . import targets as T
+from .editor import is_running as _editing
+
+
+def _edit_cuts_button(layout, text="Edit Cuts"):
+    """While the tool runs, the same button reads Done and finishes it."""
+    if _editing():
+        sub = layout.row(align=True)
+        sub.alert = True
+        sub.operator("papercraft.edit_cuts", text="Done Editing", icon="CHECKMARK", depress=True)
+    else:
+        layout.operator("papercraft.edit_cuts", text=text, icon="SCULPTMODE_HLT")
 
 
 class _Base:
@@ -44,7 +55,7 @@ class PAPERCRAFT_PT_main(_Base, bpy.types.Panel):
         row.prop(props, "live", text="", icon="FILE_REFRESH", toggle=True)
         row = layout.row(align=True)
         row.operator("papercraft.frame_layout", icon="VIEW_ORTHO")
-        row.operator("papercraft.edit_cuts", icon="SCULPTMODE_HLT")
+        _edit_cuts_button(row)
 
         if props.role == T.ROLE_SOURCE and props.info_islands:
             box = layout.box()
@@ -86,7 +97,7 @@ class PAPERCRAFT_PT_cuts(_Child, bpy.types.Panel):
         col.prop(props, "cut_sharp")
         box = layout.box()
         col = box.column(align=True)
-        col.operator("papercraft.edit_cuts", text="Edit Cuts & Tabs", icon="SCULPTMODE_HLT")
+        _edit_cuts_button(col, "Edit Cuts & Tabs")
         col.label(text="Click edge: cut / join")
         col.label(text="Click tab: other side of seam")
         col.label(text="Shift+click tab: inside / outside")
