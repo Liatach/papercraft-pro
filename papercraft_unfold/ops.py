@@ -195,6 +195,13 @@ class PAPERCRAFT_OT_export_svg(_NeedsModel, bpy.types.Operator, ExportHelper):
     filename_ext = ".svg"
     filter_glob: StringProperty(default="*.svg", options={"HIDDEN"})
 
+    def draw(self, context):
+        from .ui import draw_export
+
+        obj = _target(context)
+        if obj is not None:
+            draw_export(self.layout, obj.papercraft)
+
     def invoke(self, context, event):
         src = _target(context)
         if src is not None and not self.filepath:
@@ -218,10 +225,15 @@ class PAPERCRAFT_OT_export_svg(_NeedsModel, bpy.types.Operator, ExportHelper):
         return {"FINISHED"}
 
 
+SUFFIX = {"PRINT": "", "CUT": "_cut", "CREASE": "_crease", "LINES": "_lines"}
+
+
 def svg_documents(context, obj, entry, reporter=None):
     props = obj.papercraft
     mode = props.texture_mode
     textures = uvs = page_images = None
+    if props.export_content != "PRINT":
+        mode = "WHITE"  # lines only: nothing to bake or embed
     if mode == "IMAGE":
         textures = textures_for(entry.src.images, props.texture_max)
         uvs = [entry.src.uv_layers.get(name) for name in entry.src.image_uvs]
@@ -260,6 +272,8 @@ def svg_documents(context, obj, entry, reporter=None):
         bleed=props.bleed,
         page_images=page_images,
         tab_texture=props.tab_texture and mode == "BAKE",
+        content=props.export_content,
+        dashed=props.dashed_folds,
     )
 
 
@@ -268,6 +282,10 @@ def write_pages(context, obj, entry, filepath, reporter=None):
     if docs is None:
         return None
     base, ext = os.path.splitext(filepath)
+    suffix = SUFFIX.get(obj.papercraft.export_content, "")
+    if suffix and not base.endswith(suffix):
+        base += suffix
+        filepath = base + ext
     for n, doc in enumerate(docs, 1):
         path = filepath if len(docs) == 1 else f"{base}_page{n:02d}{ext}"
         with open(path, "w", encoding="utf-8") as fh:

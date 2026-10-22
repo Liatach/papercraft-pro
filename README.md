@@ -44,7 +44,14 @@ like; selecting a layout or rig jumps to its model.
    keyframes (Edit Cuts rebuilds it for you when you finish). The bin icon
    removes the rig; **Remove Papercraft** (bin by the model name) removes
    everything generated for that model.
-6. **Export SVG Pages** writes one SVG per page.
+6. **Export SVG Pages** writes one SVG per page. **Content** chooses what
+   goes in: *Print* (art, tabs, lines, numbers) or, for a cutting machine,
+   *Cut Lines Only*, *Crease Lines Only* or *Cut + Crease*: plain solid
+   strokes with no art or text, saved with a `_cut`, `_crease` or `_lines`
+   suffix so you can export both. For a Cricut, turn off **Dashed Folds**
+   (it scores each dash separately), upload the cut and crease files, set
+   the crease file to *Score* and attach them. In *Cut + Crease* the creases
+   are red so they import as their own layer.
 
 ### Cut along
 
@@ -64,8 +71,10 @@ A *Join* made with Edit Cuts overrides a material/colour/sharp cut.
   layers), procedurals and vertex colours. *Auto* (default) bakes the base
   colour and falls back to *Emission* for materials that colour through an
   emission path (Paint System materials often do), or pick *Base Colour*,
-  *Emission* or *Full Render* yourself; *Bake DPI* defaults to 300. Baking
-  runs on temporary copies of your materials, so they are never changed.
+  *Emission* or *Full Render* yourself (scene lighting, matte: faces turned
+  away from your lights print darker); *Bake DPI* defaults to 300. Baking
+  runs on temporary copies of your materials, so they are never changed, and
+  hides the model itself while baking so it can't shadow its own copy.
   **Texture on Tabs** carries the neighbouring art onto the tabs so tiny
   gaps at glued seams don't show tab colour.
 * **Image Textures**: fast; prints the image feeding Base Color (found
@@ -129,6 +138,7 @@ python tests/test_v02.py           # textures, line styles, cut rules, editor
 python tests/test_v03.py           # several models, rig rebuilds, baking
 python tests/test_v04.py           # cutting order, tab rules
 python tests/test_v05.py           # outside tabs, tab fold direction
+python tests/test_v06.py           # cutter exports, clean Full Render bakes
 ```
 
 ## Roadmap

@@ -51,10 +51,13 @@ def _fmt(v):
     return f"{v:.3f}".rstrip("0").rstrip(".") or "0"
 
 
-def _line_styles(style, width, color=(0.0, 0.0, 0.0), opacity=1.0):
+def _line_styles(style, width, color=(0.0, 0.0, 0.0), opacity=1.0, dashed=True):
     w = _fmt(width)
-    dash_m = f"{_fmt(width * 12)},{_fmt(width * 4)},{_fmt(width * 2)},{_fmt(width * 4)}"
-    dash_v = f"{_fmt(width * 6)},{_fmt(width * 4)}"
+    if dashed:
+        dash_m = f"{_fmt(width * 12)},{_fmt(width * 4)},{_fmt(width * 2)},{_fmt(width * 4)}"
+        dash_v = f"{_fmt(width * 6)},{_fmt(width * 4)}"
+    else:  # cutting machines score each dash as a separate little line
+        dash_m = dash_v = "none"
     base = f"fill:none;stroke-width:{w};stroke-linejoin:round;stroke-linecap:round"
     if style == "CUSTOM":
         extra = f";stroke:{_hex(color)};stroke-opacity:{_fmt(max(0.0, min(1.0, opacity)))}"
@@ -91,6 +94,8 @@ def export_pages(
     tab_color=(0.914, 0.902, 0.875),
     page_images=None,
     tab_texture=False,
+    content="PRINT",
+    dashed=True,
 ):
     """Return a list of SVG documents (strings), one per page.
 
@@ -99,13 +104,34 @@ def export_pages(
     uvs       per material index: per *source* polygon list of (u, v) per
               corner (the UV map that material's image uses)
     page_images  per page Texture of a baked page (overrides face fills)
+    content   PRINT (art and lines), or for cutting machines: CUT (outlines
+              only), CREASE (fold lines only) or LINES (both; creases red so
+              they import as their own colour layer). Lines-only files are
+              plain solid strokes: no art, numbers or text.
+    dashed    dash the fold lines (turn off for cutting machines)
     tab_texture  let the baked page image show on tabs too
     fold_min_angle  folds flatter than this (degrees) are not drawn
     bleed     mm of colour/texture spill past edges, hides white slivers
     """
     H = lay.page_h
     min_fold = math.radians(max(0.0, fold_min_angle))
-    lines = _line_styles(line_style, line_width, line_color, line_opacity)
+    lines = _line_styles(line_style, line_width, line_color, line_opacity, dashed)
+    lines_only = content in ("CUT", "CREASE", "LINES")
+    if lines_only:
+        fill_faces = False
+        page_images = None
+        textures = None
+        numbers = "OFF"
+        tab_texture = False
+        base = (f"fill:none;stroke-width:{_fmt(line_width)};stroke-linejoin:round;"
+                "stroke-linecap:round")
+        crease = "#ff0000" if content == "LINES" else "#000000"
+        solid = _line_styles("DEFAULT", line_width, dashed=dashed)
+        lines = {
+            "cut": base + ";stroke:#000000",
+            "mountain": base + f";stroke:{crease}" + solid["mountain"].split(";stroke:#c0392b")[1],
+            "valley": base + f";stroke:{crease}" + solid["valley"].split(";stroke:#2471a3")[1],
+        }
     if numbers is True:
         numbers = "FACES"
     elif not numbers:
@@ -290,6 +316,10 @@ def export_pages(
             ("cut", lines["cut"]),
             ("numbers", "font-family:sans-serif;fill:#333333"),
         ]
+        if lines_only:
+            keep = {"CUT": ("cut",), "CREASE": ("mountain", "valley"),
+                    "LINES": ("mountain", "valley", "cut")}[content]
+            groups = [(name, style) for name, style in groups if name in keep]
         for name, style in groups:
             attr = f' style="{style}"' if style else ""
             parts.append(
@@ -297,10 +327,11 @@ def export_pages(
             )
             parts.extend(layers[name])
             parts.append("</g>")
-        parts.append(
-            f'<text x="{_fmt(lay.margin)}" y="{_fmt(H - lay.margin / 3)}" '
-            f'style="font-family:sans-serif;font-size:2.5px;fill:#888888">{footer}</text>'
-        )
+        if not lines_only:  # text would import into cutter software as shapes
+            parts.append(
+                f'<text x="{_fmt(lay.margin)}" y="{_fmt(H - lay.margin / 3)}" '
+                f'style="font-family:sans-serif;font-size:2.5px;fill:#888888">{footer}</text>'
+            )
         parts.append("</svg>")
         docs.append("\n".join(parts))
     return docs

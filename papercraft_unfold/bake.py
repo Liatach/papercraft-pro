@@ -23,7 +23,9 @@ BAKE_UV = "PapercraftPage"
 PASSES = {
     "BASE": ("DIFFUSE", {"COLOR"}),
     "EMIT": ("EMIT", set()),
-    "COMBINED": ("COMBINED", set()),
+    # Lighting without glossy reflections: paper is matte, and reflections
+    # of the scene printed onto a piece just look like smudges.
+    "COMBINED": ("COMBINED", {"EMIT", "DIRECT", "INDIRECT", "DIFFUSE", "TRANSMISSION"}),
 }
 
 
@@ -181,6 +183,18 @@ def bake_pages(context, src_obj, entry, dpi=200, bake_pass="AUTO", margin_mm=0.3
             c.name = f"Papercraft Bake ({m.name})"
             copies.append(c)
 
+    # The model sits exactly where the bake copy is: rays leaving the copy
+    # would hit its identical surface (streaky self-shadowing, "acne").
+    # Hide it and every papercraft helper (layouts, rigs) from rendering.
+    from . import targets as T
+
+    hidden = []
+    for o in scene.objects:
+        if o == src_obj or o.papercraft.role in T.GENERATED:
+            if not o.hide_render:
+                hidden.append(o.name)
+                o.hide_render = True
+
     results = []
     chosen = None
     try:
@@ -225,6 +239,10 @@ def bake_pages(context, src_obj, entry, dpi=200, bake_pass="AUTO", margin_mm=0.3
                 bpy.data.meshes.remove(mesh)
                 bpy.data.images.remove(image)
     finally:
+        for name in hidden:
+            o = bpy.data.objects.get(name)
+            if o is not None:
+                o.hide_render = False
         for m in copies:
             bpy.data.materials.remove(m)
         for o in context.selected_objects:

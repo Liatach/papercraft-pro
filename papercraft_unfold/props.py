@@ -137,6 +137,23 @@ class PapercraftSettings(bpy.types.PropertyGroup):
     tab_angle: FloatProperty(name="Tab Angle", default=45.0, min=15.0, max=89.0, update=_changed)
 
     # Export -------------------------------------------------------------
+    export_content: EnumProperty(
+        name="Content",
+        items=[
+            ("PRINT", "Print", "Art, tabs, lines and numbers for printing"),
+            ("CUT", "Cut Lines Only", "Piece and tab outlines only, as plain solid lines "
+             "(cutting machine template); file name ends _cut"),
+            ("CREASE", "Crease Lines Only", "Fold lines only, for scoring; file name ends _crease"),
+            ("LINES", "Cut + Crease", "Both in one file, creases in red so they import as a "
+             "separate colour layer; file name ends _lines"),
+        ],
+        default="PRINT",
+    )
+    dashed_folds: BoolProperty(
+        name="Dashed Folds", default=True,
+        description="Dash the fold lines. Turn off for cutting machines, which score a "
+        "dashed line as many short pieces",
+    )
     texture_mode: EnumProperty(
         name="Print",
         items=[
@@ -156,7 +173,8 @@ class PapercraftSettings(bpy.types.PropertyGroup):
              "through an emission path (e.g. Paint System), then to a full render"),
             ("BASE", "Base Colour", "The material's colour without lighting (usual for papercraft)"),
             ("EMIT", "Emission", "For materials that output colour through an Emission shader"),
-            ("COMBINED", "Full Render", "Colour with the scene's lighting and shading"),
+            ("COMBINED", "Full Render", "Colour with the scene's lighting and shading "
+             "(matte: no glossy reflections)"),
         ],
         default="AUTO",
     )

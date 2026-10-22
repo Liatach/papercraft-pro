@@ -165,36 +165,50 @@ class PAPERCRAFT_PT_animate(_Child, bpy.types.Panel):
             layout.operator("papercraft.animate", icon="KEY_HLT")
 
 
+def draw_export(layout, props):
+    """Export settings (sidebar panel and the export file dialog)."""
+    layout.use_property_split = True
+    layout.use_property_decorate = False
+    col = layout.column()
+    col.prop(props, "export_content")
+    if props.export_content != "PRINT":
+        col.prop(props, "line_width")
+        col.prop(props, "dashed_folds")
+        col.prop(props, "fold_min_angle")
+        if props.dashed_folds:
+            col.label(text="Cutters score each dash separately", icon="INFO")
+        if props.export_content == "LINES":
+            col.label(text="Creases are red, cuts black", icon="INFO")
+        return
+    col.prop(props, "texture_mode")
+    if props.texture_mode == "BAKE":
+        col.prop(props, "bake_pass")
+        col.prop(props, "bake_dpi")
+        col.prop(props, "tab_texture")
+    elif props.texture_mode == "IMAGE":
+        col.prop(props, "texture_max")
+    if props.texture_mode != "WHITE":
+        col.prop(props, "bleed")
+    col.separator()
+    col.prop(props, "number_mode")
+    col.separator()
+    col.prop(props, "line_style")
+    if props.line_style == "CUSTOM":
+        col.prop(props, "line_color")
+        col.prop(props, "line_opacity")
+    sub = col.column()
+    sub.active = props.line_style != "NONE"
+    sub.prop(props, "line_width")
+    sub.prop(props, "dashed_folds")
+    sub.prop(props, "fold_min_angle")
+
+
 class PAPERCRAFT_PT_export(_Child, bpy.types.Panel):
     bl_label = "Print & Export"
 
     def draw(self, context):
-        layout = self.layout
-        layout.use_property_split = True
-        layout.use_property_decorate = False
-        props = T.target(context).papercraft
-        col = layout.column()
-        col.prop(props, "texture_mode")
-        if props.texture_mode == "BAKE":
-            col.prop(props, "bake_pass")
-            col.prop(props, "bake_dpi")
-            col.prop(props, "tab_texture")
-        elif props.texture_mode == "IMAGE":
-            col.prop(props, "texture_max")
-        if props.texture_mode != "WHITE":
-            col.prop(props, "bleed")
-        col.separator()
-        col.prop(props, "number_mode")
-        col.separator()
-        col.prop(props, "line_style")
-        if props.line_style == "CUSTOM":
-            col.prop(props, "line_color")
-            col.prop(props, "line_opacity")
-        sub = col.column()
-        sub.active = props.line_style != "NONE"
-        sub.prop(props, "line_width")
-        sub.prop(props, "fold_min_angle")
-        layout.operator("papercraft.export_svg", icon="EXPORT")
+        draw_export(self.layout, T.target(context).papercraft)
+        self.layout.operator("papercraft.export_svg", icon="EXPORT")
 
 
 classes = (
