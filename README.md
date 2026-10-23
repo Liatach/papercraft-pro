@@ -168,7 +168,23 @@ python tests/test_v05.py           # outside tabs, tab fold direction
 python tests/test_v06.py           # cutter exports, clean Full Render bakes
 python tests/test_v07.py           # Edit Cuts always exits cleanly
 ```
+v0.9.0: Paper thickness
 
+Paper Thickness (Fold Animation): gives the folding sheet real thickness for renders. Glue tabs sit one paper thickness behind the wall they glue to (outside tabs in front), so they no longer show through the walls in renders.
+Modifiers you add to the folding mesh are kept when you rebuild the rig.
+
+v0.8.0: Exports, colour and fold animation
+
+Art + Cut Lines export: art on the pieces and carried onto the tabs, with only the cut outlines drawn and no fold lines over the art. Saved with an _art suffix.
+Texture on Tabs now works with Image Textures and Flat Colours, not just Baked.
+Grey Tabs option: turn it off to leave plain tabs paper white.
+True bake colours: each bake checks itself against a known grey, fixing washed-out prints on some Blender builds.
+Fold rig starts printed side down: pieces fold up off the table like real paper, with no flip.
+One at a Time fold: hinges fold in turn from the extremities inwards (glue tabs, then tips, root last), with an Overlap control.
+
+v0.7.1: Edit Cuts fixes
+
+Edit Cuts can no longer get stuck. Sidebar and other editors stay clickable, the button becomes Done Editing while the tool is on, and errors, Edit Mode or loading a file all end the tool cleanly.
 ## Roadmap
 
 * Drag pieces around the page; PDF export
