@@ -3,7 +3,7 @@
 **Unfold Blender models into printable papercraft: glue tabs, live page
 layout, cutter-ready SVGs and an animated fold rig.**
 
-![Papercraft Pro: a model half unfolded onto printer paper](docs/images/Hero with text.png)
+![Papercraft Pro: a model half unfolded onto printer paper](docs/images/Hero%20with%20text.png)
 
 A Blender extension (4.2+) that unfolds a mesh into papercraft pieces with
 glue tabs, lays them out live on standard pages beside the model, exports
