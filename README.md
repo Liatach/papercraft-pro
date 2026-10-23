@@ -27,7 +27,8 @@ By Kim Lang / Liatach Makes. Written from scratch; GPL-3.0-or-later.
 * **Fold animation**: a hinge rig folds the printed sheet up and assembles it
   onto the model, ready to keyframe.
 
-![The fold rig folding a sheet up into the model](docs/images/unfold.gif)
+![The fold rig folding a sheet up into the model](docs/images/SuzanneFlatten720p.gif
+)
 
 ## Install
 
