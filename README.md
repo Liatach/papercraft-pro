@@ -63,16 +63,22 @@ like; selecting a layout or rig jumps to its model.
    split viewports. Finish with Right-click, Esc or the **Done Editing**
    button; clicks on the sidebar and other editors work normally meanwhile.
    Going into Edit Mode or hitting an error also ends the tool cleanly.
-5. **Fold Animation → Build Fold Rig**: a printed-side-up copy of the sheet
-   appears in front of the layout. **Fold** folds each piece up and turns it
-   the right way up, standing beside the layout; **Assemble** slides the
-   pieces onto the model. **Keyframe Fold Animation** animates both. If you change cuts or tabs later
+5. **Fold Animation → Build Fold Rig**: a copy of the sheet appears in front
+   of the layout, printed side down like paper on a table. **Fold** folds the
+   pieces up off the table, each resting on its root piece; **Assemble**
+   slides them onto the model. **Keyframe Fold Animation** animates both.
+   Tick **One at a Time** to fold hinge by hinge from the extremities
+   inwards (glue tabs first, then the tips, the root piece last); **Overlap**
+   sets how much each fold overlaps the next (0 = strictly one after
+   another, 1 = all together). If you change cuts or tabs later
    the panel shows *Rig is out of date*; **Rebuild Rig** keeps your
    keyframes (Edit Cuts rebuilds it for you when you finish). The bin icon
    removes the rig; **Remove Papercraft** (bin by the model name) removes
    everything generated for that model.
 6. **Export SVG Pages** writes one SVG per page. **Content** chooses what
-   goes in: *Print* (art, tabs, lines, numbers) or, for a cutting machine,
+   goes in: *Print* (art, tabs, lines, numbers); *Art + Cut Lines* (art on
+   the pieces and carried onto the tabs, with only the cut outlines drawn:
+   no fold lines over the art; saved with an `_art` suffix); or, for a cutting machine,
    *Cut Lines Only*, *Crease Lines Only* or *Cut + Crease*: plain solid
    strokes with no art or text, saved with a `_cut`, `_crease` or `_lines`
    suffix so you can export both. For a Cricut, turn off **Dashed Folds**
@@ -102,11 +108,14 @@ A *Join* made with Edit Cuts overrides a material/colour/sharp cut.
   away from your lights print darker); *Bake DPI* defaults to 300. Baking
   runs on temporary copies of your materials, so they are never changed, and
   hides the model itself while baking so it can't shadow its own copy.
-  **Texture on Tabs** carries the neighbouring art onto the tabs so tiny
-  gaps at glued seams don't show tab colour.
+  Each bake also bakes a small known grey alongside and reads it back, so
+  colours come out true whichever way your Blender build stores the result.
 * **Image Textures**: fast; prints the image feeding Base Color (found
   inside node groups too) through the UV map that image uses.
 * **Flat Colours** / **Lines Only** for quick tests and cutting machines.
+* **Texture on Tabs** (Baked, Image Textures or Flat Colours) carries each
+  face's art on across its tabs, so tiny gaps at glued seams don't show tab
+  colour. **Grey Tabs** off leaves plain tabs paper white.
 * **Bleed**: colour runs a little past each edge so imperfect cuts don't
   show white.
 * **Numbers**: *On Faces* (inside both glued edges), *Tabs & Scrap* (on
@@ -167,6 +176,7 @@ python tests/test_v04.py           # cutting order, tab rules
 python tests/test_v05.py           # outside tabs, tab fold direction
 python tests/test_v06.py           # cutter exports, clean Full Render bakes
 python tests/test_v07.py           # Edit Cuts always exits cleanly
+python tests/test_v08.py           # art + cut export, colour check, fold order
 ```
 
 ## Roadmap

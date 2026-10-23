@@ -225,14 +225,15 @@ class PAPERCRAFT_OT_export_svg(_NeedsModel, bpy.types.Operator, ExportHelper):
         return {"FINISHED"}
 
 
-SUFFIX = {"PRINT": "", "CUT": "_cut", "CREASE": "_crease", "LINES": "_lines"}
+SUFFIX = {"PRINT": "", "ART_CUT": "_art", "CUT": "_cut", "CREASE": "_crease", "LINES": "_lines"}
 
 
 def svg_documents(context, obj, entry, reporter=None):
     props = obj.papercraft
     mode = props.texture_mode
     textures = uvs = page_images = None
-    if props.export_content != "PRINT":
+    art_tabs = props.tab_texture or props.export_content == "ART_CUT"
+    if props.export_content not in ("PRINT", "ART_CUT"):
         mode = "WHITE"  # lines only: nothing to bake or embed
     if mode == "IMAGE":
         textures = textures_for(entry.src.images, props.texture_max)
@@ -243,7 +244,7 @@ def svg_documents(context, obj, entry, reporter=None):
         wm = context.window_manager
         wm.progress_begin(0, max(entry.lay.page_count, 1))
         try:
-            margin = props.tab_height + 1.0 if props.tab_texture else props.bleed + 0.2
+            margin = props.tab_height + 1.0 if art_tabs else props.bleed + 0.2
             page_images = bake_pages(
                 context, obj, entry,
                 dpi=props.bake_dpi, bake_pass=props.bake_pass, margin_mm=margin,
@@ -271,9 +272,10 @@ def svg_documents(context, obj, entry, reporter=None):
         fold_min_angle=props.fold_min_angle,
         bleed=props.bleed,
         page_images=page_images,
-        tab_texture=props.tab_texture and mode == "BAKE",
+        tab_texture=art_tabs and mode != "WHITE",
         content=props.export_content,
         dashed=props.dashed_folds,
+        tab_fill=props.tab_fill,
     )
 
 

@@ -64,12 +64,15 @@ class PageFrame:
         return self.matrix @ self.to_local(page, p, lift)
 
     def to_rig(self, page, p, matrix=None):
-        """The rig's sheet: same layout, printed side up, laid on the table
-        just in front of the layout so the two don't overlap."""
+        """The rig's sheet: the same layout turned over (printed side down,
+        so pieces fold up off the table like real paper), laid just in
+        front of the layout so the two don't overlap. Turning over is a
+        half turn about the page's X axis: a rigid motion, so fold angles
+        are unchanged."""
         v = self.to_local(page, p)
         h = self.page_h * self.unit
-        shifted = Vector((v.x, v.y - h * 1.1, v.z))
-        return (matrix if matrix is not None else self.matrix) @ shifted
+        turned = Vector((v.x, -v.y - h * 0.1, -v.z))
+        return (matrix if matrix is not None else self.matrix) @ turned
 
 
 def default_layout_location(verts, lay):
@@ -271,10 +274,20 @@ def _frame_from_points(pts, k):
     return m
 
 
-def rig_signature(entry):
+RIG_VERSION = 2  # 2: face-down sheet, no upright flip, fold sequencing
+
+
+def _sequence_settings(props):
+    if props is None:
+        return (False, 0.0)
+    return (bool(props.fold_one_by_one), round(float(props.fold_overlap), 4))
+
+
+def rig_signature(entry, props=None):
     h = hashlib.sha1()
     h.update(entry.signature.encode())
     h.update(repr(entry.settings).encode())
+    h.update(repr((RIG_VERSION, _sequence_settings(props))).encode())
     return h.hexdigest()[:16]
 
 
@@ -282,7 +295,48 @@ def rig_is_stale(src_obj, entry):
     arm = T.output(src_obj, T.ROLE_RIG)
     if arm is None or entry is None:
         return False
-    return arm.get("papercraft_signature") != rig_signature(entry)
+    return arm.get("papercraft_signature") != rig_signature(entry, src_obj.papercraft)
+
+
+def fold_schedule(res, lay, hinge_names, one_by_one, overlap, include_tabs=True):
+    """name -> (start, length) within the fold slider's 0..1.
+
+    One by one: the extremities go first. Every hinge waits until everything
+    hanging off it has folded (glue tabs, then the faces at the tips, then
+    their parents ... the root last); hinges at the same stage go deepest
+    first. `overlap` 0 = strictly one after another, 1 = all together."""
+    names = list(hinge_names)
+    if not one_by_one or len(names) < 2:
+        return {n: (0.0, 1.0) for n in names}
+    height, depth = {}, {}
+    for isl in res.islands:
+        children = {}
+        for f in isl.order:
+            if f != isl.root:
+                children.setdefault(isl.parent[f][0], []).append(f)
+        for f in isl.order:  # parents come before children in order
+            depth[f] = 0 if f == isl.root else depth[isl.parent[f][0]] + 1
+        tabbed = {t.face for t in lay.tabs} if include_tabs else set()
+        for f in reversed(isl.order):
+            kids = [height[c] for c in children.get(f, ())]
+            if f in tabbed:
+                kids.append(0)  # its glue tabs fold before it
+            height[f] = 1 + max(kids) if kids else 0
+    key = {}
+    for name in names:
+        if name.startswith("T"):
+            tab = lay.tabs[int(name[1:])]
+            key[name] = (0, -(depth.get(tab.face, 0) + 1), int(name[1:]))
+        else:
+            f = int(name[1:])
+            key[name] = (height[f] + (1 if include_tabs else 0), -depth[f], f)
+    ordered = sorted(names, key=lambda n: key[n])
+    n = len(ordered)
+    overlap = max(0.0, min(1.0, overlap))
+    slot = 1.0 / n
+    length = slot + overlap * (1.0 - slot)
+    step = (1.0 - length) / (n - 1)
+    return {name: (i * step, length) for i, name in enumerate(ordered)}
 
 
 def ensure_object_mode(context):
@@ -338,7 +392,7 @@ def remove_rig(src_obj):
     return saved
 
 
-def _add_driver(target_id, data_path, index, owner, prop, factor):
+def _add_driver(target_id, data_path, index, owner, prop, factor, start=0.0, length=1.0):
     fc = target_id.driver_add(data_path, index) if index >= 0 else target_id.driver_add(data_path)
     drv = fc.driver
     drv.type = "SCRIPTED"
@@ -350,7 +404,12 @@ def _add_driver(target_id, data_path, index, owner, prop, factor):
     var.targets[0].data_path = f'["{prop}"]'
     # A "simple expression": evaluated without Python, so it works even
     # when Auto Run Python Scripts is off.
-    drv.expression = f"t*{factor:.9f}" if factor != 1.0 else "t"
+    if start <= 0.0 and length >= 1.0:
+        drv.expression = f"t*{factor:.9f}" if factor != 1.0 else "t"
+    else:
+        # This hinge's own stretch of the slider, eased in and out.
+        u = f"min(max((t-{start:.6f})*{1.0 / length:.6f},0),1)"
+        drv.expression = f"{factor:.9f}*{u}*{u}*(3-2*{u})"
     return fc
 
 
@@ -442,17 +501,20 @@ def build_rig(context, src_obj, entry, include_tabs=True):
     finally:
         bpy.ops.object.mode_set(mode="OBJECT")
 
+    props = src_obj.papercraft
+    schedule = fold_schedule(
+        res, lay, [name for name, _ in hinges],
+        props.fold_one_by_one, props.fold_overlap, include_tabs,
+    )
     for name, angle in hinges:
         pb = arm.pose.bones[name]
         pb.rotation_mode = "XYZ"
-        _add_driver(pb, "rotation_euler", 1, arm, "fold", angle)
+        start, length = schedule[name]
+        _add_driver(pb, "rotation_euler", 1, arm, "fold", angle, start, length)
 
-    # Root bones: two Copy Transforms per piece.
-    #   "Folded" (influence = fold): turn the piece into the model's own
-    #   orientation, resting on the table above where it lay, so the folded
-    #   model stands the right way up beside the layout.
-    #   "Assembled" (influence = assemble): slide it into place on the model.
-    table_z = (layout_matrix @ Vector((0.0, 0.0, 0.0))).z
+    # Root bones: the sheet lies printed side down, so pieces fold up and
+    # rest on their root face like real paper. One Copy Transforms per piece:
+    #   "Assembled" (influence = assemble): move it into place on the model.
     # Keep the many helper empties out of the way in one sub-collection.
     target_coll = None
     for child in coll.children:
@@ -469,18 +531,7 @@ def build_rig(context, src_obj, entry, include_tabs=True):
         model_pts = [Vector(src.verts[v]) for v in face.loop]
         k = _best_corner(model_pts)
         M = _frame_from_points(model_pts, k) @ _frame_from_points(world_pts[f], k).inverted()
-        island_model = [Vector(src.verts[v]) for g in isl.faces for v in res.faces[g].loop]
-        island_sheet = [p for g in isl.faces for p in world_pts[g]]
-        lo = Vector((min(p.x for p in island_model), min(p.y for p in island_model),
-                     min(p.z for p in island_model)))
-        hi = Vector((max(p.x for p in island_model), max(p.y for p in island_model), 0.0))
-        sheet_c = sum(island_sheet, Vector()) / len(island_sheet)
-        offset = Vector((sheet_c.x - (lo.x + hi.x) / 2, sheet_c.y - (lo.y + hi.y) / 2,
-                         table_z - lo.z))
-        for label, matrix, prop in (
-            ("Folded", Matrix.Translation(offset) @ M, "fold"),
-            ("Assembled", M, "assemble"),
-        ):
+        for label, matrix, prop in (("Assembled", M, "assemble"),):
             target = bpy.data.objects.new(f"{src_obj.name} {label} {isl.index}", None)
             T.tag(target, T.ROLE_TARGET, src_obj)
             target.empty_display_type = "PLAIN_AXES"
@@ -541,7 +592,7 @@ def build_rig(context, src_obj, entry, include_tabs=True):
     mod.object = arm
     folding.parent = arm
 
-    arm["papercraft_signature"] = rig_signature(entry)
+    arm["papercraft_signature"] = rig_signature(entry, src_obj.papercraft)
     if saved_anim:
         arm["fold"] = saved_anim["fold"]
         arm["assemble"] = saved_anim["assemble"]

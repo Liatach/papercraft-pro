@@ -141,6 +141,8 @@ class PapercraftSettings(bpy.types.PropertyGroup):
         name="Content",
         items=[
             ("PRINT", "Print", "Art, tabs, lines and numbers for printing"),
+            ("ART_CUT", "Art + Cut Lines", "Art on the pieces and carried onto the tabs, "
+             "outlined by cut lines only: no fold lines over the art; file name ends _art"),
             ("CUT", "Cut Lines Only", "Piece and tab outlines only, as plain solid lines "
              "(cutting machine template); file name ends _cut"),
             ("CREASE", "Crease Lines Only", "Fold lines only, for scoring; file name ends _crease"),
@@ -184,8 +186,23 @@ class PapercraftSettings(bpy.types.PropertyGroup):
     )
     tab_texture: BoolProperty(
         name="Texture on Tabs", default=False,
-        description="Continue the neighbouring face's art onto the tabs, so small gaps "
-        "at glued seams don't show the tab colour (baked mode)",
+        description="Continue each face's art onto its tabs, so small gaps at glued "
+        "seams don't show the tab colour",
+    )
+    fold_one_by_one: BoolProperty(
+        name="One at a Time", default=False,
+        description="Fold the hinges in turn, from the extremities inwards: glue tabs, "
+        "then the tips, the root piece last (Rebuild Rig to apply)",
+    )
+    fold_overlap: FloatProperty(
+        name="Overlap", default=0.15, min=0.0, max=1.0, subtype="FACTOR",
+        description="How much each fold overlaps the next: 0 = strictly one after "
+        "another, 1 = all together (Rebuild Rig to apply)",
+    )
+    tab_fill: BoolProperty(
+        name="Grey Tabs", default=True,
+        description="Fill plain tabs light grey. Off: tabs stay paper white, outlined "
+        "by their cut lines",
     )
     number_mode: EnumProperty(
         name="Numbers",

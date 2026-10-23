@@ -42,7 +42,25 @@ def _png(width, height, rgba_rows):
     )
 
 
-def _encode_pixels(img, max_size):
+def to_srgb(x):
+    import numpy as np
+
+    x = np.clip(x, 0.0, 1.0)
+    return np.where(x <= 0.0031308, x * 12.92, 1.055 * np.power(x, 1 / 2.4) - 0.055)
+
+
+def from_srgb(x):
+    import numpy as np
+
+    x = np.clip(x, 0.0, 1.0)
+    return np.where(x <= 0.04045, x / 12.92, np.power((x + 0.055) / 1.055, 2.4))
+
+
+def _encode_pixels(img, max_size, srgb_steps=None):
+    """PNG bytes of `img`. `srgb_steps`: how many times to apply the sRGB
+    curve to its pixels before writing: 1 for linear values, 0 for values
+    already in sRGB, -1 to undo one extra encoding. None: go by the buffer
+    type (float buffers are linear)."""
     import numpy as np
 
     w, h = img.size
@@ -52,12 +70,13 @@ def _encode_pixels(img, max_size):
     step = max(1, math.ceil(max(w, h) / max_size))
     if step > 1:
         arr = arr[::step, ::step]
-    if img.is_float:  # linear float data -> sRGB for printing
-        rgb = np.clip(arr[..., :3], 0.0, 1.0)
+    if srgb_steps is None:
+        srgb_steps = 1 if img.is_float else 0
+    if srgb_steps:
         arr = arr.copy()
-        arr[..., :3] = np.where(
-            rgb <= 0.0031308, rgb * 12.92, 1.055 * np.power(rgb, 1 / 2.4) - 0.055
-        )
+        curve = to_srgb if srgb_steps > 0 else from_srgb
+        for _ in range(abs(srgb_steps)):
+            arr[..., :3] = curve(arr[..., :3])
     out = np.clip(arr * 255.0 + 0.5, 0, 255).astype(np.uint8)
     rows = [out[r].tobytes() for r in range(out.shape[0])]
     return _png(out.shape[1], out.shape[0], rows)

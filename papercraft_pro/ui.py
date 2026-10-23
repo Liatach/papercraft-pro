@@ -159,13 +159,29 @@ class PAPERCRAFT_PT_animate(_Child, bpy.types.Panel):
         obj = T.target(context)
         arm = T.output(obj, T.ROLE_RIG)
         if arm is None:
+            props = obj.papercraft
+            col = layout.column()
+            col.use_property_split = True
+            col.use_property_decorate = False
+            col.prop(props, "fold_one_by_one")
+            sub = col.column()
+            sub.active = props.fold_one_by_one
+            sub.prop(props, "fold_overlap")
             layout.operator("papercraft.build_rig", icon="ARMATURE_DATA")
             return
         entry = live.cached(obj)
+        props = obj.papercraft
+        col = layout.column()
+        col.use_property_split = True
+        col.use_property_decorate = False
+        col.prop(props, "fold_one_by_one")
+        sub = col.column()
+        sub.active = props.fold_one_by_one
+        sub.prop(props, "fold_overlap")
         if build.rig_is_stale(obj, entry):
             box = layout.box()
             box.alert = True
-            box.label(text="Rig is out of date with the cuts", icon="ERROR")
+            box.label(text="Rig is out of date: Rebuild Rig", icon="ERROR")
         row = layout.row(align=True)
         row.operator("papercraft.build_rig", text="Rebuild Rig", icon="FILE_REFRESH")
         row.operator("papercraft.remove_rig", text="", icon="TRASH")
@@ -182,7 +198,8 @@ def draw_export(layout, props):
     layout.use_property_decorate = False
     col = layout.column()
     col.prop(props, "export_content")
-    if props.export_content != "PRINT":
+    art_cut = props.export_content == "ART_CUT"
+    if props.export_content not in ("PRINT", "ART_CUT"):
         col.prop(props, "line_width")
         col.prop(props, "dashed_folds")
         col.prop(props, "fold_min_angle")
@@ -195,11 +212,14 @@ def draw_export(layout, props):
     if props.texture_mode == "BAKE":
         col.prop(props, "bake_pass")
         col.prop(props, "bake_dpi")
-        col.prop(props, "tab_texture")
     elif props.texture_mode == "IMAGE":
         col.prop(props, "texture_max")
     if props.texture_mode != "WHITE":
         col.prop(props, "bleed")
+        if not art_cut:
+            col.prop(props, "tab_texture")
+    if props.texture_mode == "WHITE" or not (props.tab_texture or art_cut):
+        col.prop(props, "tab_fill")
     col.separator()
     col.prop(props, "number_mode")
     col.separator()
@@ -210,8 +230,9 @@ def draw_export(layout, props):
     sub = col.column()
     sub.active = props.line_style != "NONE"
     sub.prop(props, "line_width")
-    sub.prop(props, "dashed_folds")
-    sub.prop(props, "fold_min_angle")
+    if not art_cut:
+        sub.prop(props, "dashed_folds")
+        sub.prop(props, "fold_min_angle")
 
 
 class PAPERCRAFT_PT_export(_Child, bpy.types.Panel):

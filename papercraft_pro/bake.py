@@ -67,6 +67,72 @@ def _fallback_material(src_mat):
     return mat
 
 
+# A known grey baked next to every page tells us how Blender stored the
+# result: linear values (needs the sRGB curve) or already display values.
+# Blender builds differ here, and guessing wrong washes colours out (sRGB
+# applied twice) or darkens them.
+CHECK_LINEAR = 0.2
+
+
+def _check_object(scene, image):
+    mesh = bpy.data.meshes.new("Papercraft Bake Check")
+    mesh.from_pydata([(0, 0, 0), (0.01, 0, 0), (0.01, 0.01, 0), (0, 0.01, 0)], [], [[0, 1, 2, 3]])
+    uv = mesh.uv_layers.new(name=BAKE_UV)
+    uv.data.foreach_set("uv", (0, 0, 1, 0, 1, 1, 0, 1))
+    mat = bpy.data.materials.new("Papercraft Bake Check")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    bsdf = nt.nodes.get("Principled BSDF")
+    bsdf.inputs["Base Color"].default_value = (CHECK_LINEAR, CHECK_LINEAR, CHECK_LINEAR, 1.0)
+    bsdf.inputs["Roughness"].default_value = 1.0
+    emit = nt.nodes.new("ShaderNodeEmission")
+    emit.inputs["Color"].default_value = (CHECK_LINEAR, CHECK_LINEAR, CHECK_LINEAR, 1.0)
+    emit.inputs["Strength"].default_value = 1.0
+    node = nt.nodes.new("ShaderNodeTexImage")
+    node.image = image
+    nt.nodes.active = node
+    mesh.materials.append(mat)
+    obj = bpy.data.objects.new("Papercraft Bake Check", mesh)
+    obj.location = (0.0, 0.0, -10000.0)  # far from the model: no shadows, no light
+    for attr in ("visible_diffuse", "visible_glossy", "visible_transmission",
+                 "visible_shadow", "visible_volume_scatter"):
+        if hasattr(obj, attr):
+            setattr(obj, attr, False)
+    scene.collection.objects.link(obj)
+    return obj, mat, bsdf, emit
+
+
+def _check_shader(mat, bsdf, emit, pass_name):
+    """Base colour pass reads the BSDF colour; emission/full render the
+    emission (a full render of the BSDF would depend on the lights)."""
+    nt = mat.node_tree
+    out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
+    src = bsdf if pass_name == "BASE" else emit
+    nt.links.new(src.outputs[0], out.inputs["Surface"])
+
+
+def _srgb_steps(image):
+    """How many times the page pixels still need the sRGB curve: 1 if the
+    check grey came back linear, 0 if as sRGB, -1 if sRGB was applied twice."""
+    import numpy as np
+
+    from .textures import to_srgb
+
+    w, h = image.size
+    px = np.empty(w * h * 4, dtype=np.float32)
+    image.pixels.foreach_get(px)
+    px = px.reshape(h, w, 4)[h // 4: 3 * h // 4, w // 4: 3 * w // 4].reshape(-1, 4)
+    v = float(np.median(px[:, :3]))
+    levels = [CHECK_LINEAR]
+    for _ in range(2):
+        levels.append(float(to_srgb(np.array(levels[-1]))))
+    found = min(range(3), key=lambda k: abs(v - levels[k]))  # times encoded
+    if abs(v - levels[found]) > 0.06:
+        print(f"Papercraft: bake colour check read {v:.3f} (expected one of "
+              f"{', '.join(f'{x:.3f}' for x in levels)})")
+    return 1 - found
+
+
 def page_of(items):
     return items[0][2] if items and len(items[0]) > 2 else None
 
@@ -197,6 +263,9 @@ def bake_pages(context, src_obj, entry, dpi=200, bake_pass="AUTO", margin_mm=0.3
 
     results = []
     chosen = None
+    check_img = bpy.data.images.new("Papercraft Bake Check", 16, 16, alpha=True)
+    check_obj, check_mat, check_bsdf, check_emit = _check_object(scene, check_img)
+    srgb_steps = []
     try:
         for page in range(max(lay.page_count, 1)):
             items = per_page.get(page)
@@ -221,17 +290,21 @@ def bake_pages(context, src_obj, entry, dpi=200, bake_pass="AUTO", margin_mm=0.3
                 for o in context.selected_objects:
                     o.select_set(False)
                 obj.select_set(True)
+                check_obj.select_set(True)
                 view_layer.objects.active = obj
                 # Auto: base colour first; materials that colour through an
                 # emission path (common in paint add-ons) bake black there.
                 for candidate in ([chosen] if chosen else passes):
+                    _check_shader(check_mat, check_bsdf, check_emit, candidate)
                     _bake(scene, candidate, samples, margin_px)
                     if bake_pass != "AUTO" or chosen or candidate == passes[-1]:
                         break
                     if _baked_brightness(image) > 0.02:
                         break
                 chosen = chosen or candidate
-                png = _encode_pixels(image, max(width, height))
+                steps = _srgb_steps(check_img)
+                srgb_steps.append(steps)
+                png = _encode_pixels(image, max(width, height), srgb_steps=steps)
                 uri = f"data:image/png;base64,{base64.b64encode(png).decode('ascii')}"
                 results.append(Texture(uri, width, height))
             finally:
@@ -239,6 +312,11 @@ def bake_pages(context, src_obj, entry, dpi=200, bake_pass="AUTO", margin_mm=0.3
                 bpy.data.meshes.remove(mesh)
                 bpy.data.images.remove(image)
     finally:
+        check_mesh = check_obj.data
+        bpy.data.objects.remove(check_obj, do_unlink=True)
+        bpy.data.meshes.remove(check_mesh)
+        bpy.data.materials.remove(check_mat)
+        bpy.data.images.remove(check_img)
         for name in hidden:
             o = bpy.data.objects.get(name)
             if o is not None:
@@ -263,6 +341,7 @@ def bake_pages(context, src_obj, entry, dpi=200, bake_pass="AUTO", margin_mm=0.3
         except (ReferenceError, TypeError):
             pass
     bake_pages.last_pass = chosen
+    bake_pages.srgb_steps = srgb_steps
     return results
 
 

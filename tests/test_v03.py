@@ -137,25 +137,33 @@ def rig_positions(fold, assemble):
     return pos, normals
 
 
-pos, normals = rig_positions(0.0, 0.0)
+pos0, normals = rig_positions(0.0, 0.0)
 nfaces = sum(len(i.order) for i in entry_i.res.islands)
-up = sum(1 for n in normals[:nfaces] if n.z > 0.99)
-print(f"flat sheet: {up}/{nfaces} pieces printed side up")
-assert up == nfaces
-table = min(p.z for p in pos)
+down = sum(1 for n in normals[:nfaces] if n.z < -0.99)
+print(f"flat sheet: {down}/{nfaces} pieces printed side down")
+assert down == nfaces
+table = min(p.z for p in pos0)
 pos, _ = rig_positions(1.0, 0.0)
 idx = 0
 for isl in entry_i.res.islands:
-    offs = []
+    model, folded, root_idx = [], [], []
     for f in isl.order:
         for v in entry_i.res.faces[f].loop:
-            offs.append(pos[idx] - Vector(entry_i.src.verts[v]))
+            model.append(Vector(entry_i.src.verts[v]))
+            folded.append(pos[idx])
+            if f == isl.root:
+                root_idx.append(idx)
             idx += 1
-    spread = max((o - offs[0]).length for o in offs)
-    assert spread < 1e-4, f"folded island is not just a translated model ({spread})"
+    # Rigid copy of the model (no mirror, no squash): distances match.
+    spread = max(abs((folded[a] - folded[b]).length - (model[a] - model[b]).length)
+                 for a in range(0, len(model), 3) for b in range(1, len(model), 5))
+    assert spread < 1e-4, f"folded island is not the model's shape ({spread})"
+    # The root piece never moves while folding: no flip.
+    assert max((pos[i] - pos0[i]).length for i in root_idx) < 1e-6
 low = min(p.z for p in pos[:idx])
-print(f"folded beside layout: upright (translation only), resting at table z {low - table:+.1e}")
-assert abs(low - table) < 1e-4
+print(f"folded: model shape, root stays put, rests on the table (z {low - table:+.1e}), "
+      "pieces fold up")
+assert low > table - 1e-4
 arm_i["fold"], arm_i["assemble"] = 0.0, 0.0
 
 # ------------------------------------------------------------ 3. move layout

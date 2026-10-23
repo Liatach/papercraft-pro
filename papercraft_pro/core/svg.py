@@ -96,6 +96,7 @@ def export_pages(
     tab_texture=False,
     content="PRINT",
     dashed=True,
+    tab_fill=True,
 ):
     """Return a list of SVG documents (strings), one per page.
 
@@ -108,8 +109,12 @@ def export_pages(
               only), CREASE (fold lines only) or LINES (both; creases red so
               they import as their own colour layer). Lines-only files are
               plain solid strokes: no art, numbers or text.
+              ART_CUT is Print with the art carried onto the tabs and only the
+              cut lines drawn (no fold lines on the art).
     dashed    dash the fold lines (turn off for cutting machines)
-    tab_texture  let the baked page image show on tabs too
+    tab_texture  continue each face's art (baked page, image texture or
+              flat colour) onto its tabs
+    tab_fill  fill plain tabs grey (False: leave them paper white)
     fold_min_angle  folds flatter than this (degrees) are not drawn
     bleed     mm of colour/texture spill past edges, hides white slivers
     """
@@ -117,6 +122,8 @@ def export_pages(
     min_fold = math.radians(max(0.0, fold_min_angle))
     lines = _line_styles(line_style, line_width, line_color, line_opacity, dashed)
     lines_only = content in ("CUT", "CREASE", "LINES")
+    if content == "ART_CUT":
+        tab_texture = True
     if lines_only:
         fill_faces = False
         page_images = None
@@ -244,9 +251,11 @@ def export_pages(
                     page["tabs"].append(poly)
                     if tab_texture or tab.outer:
                         page["clip"].append(poly)
-                    if tab.outer and fill_faces and not (
-                        page_images and page_images[place.page] is not None
-                    ):
+                    baked_page = page_images and page_images[place.page] is not None
+                    if tab_texture and not tab.outer and fill_faces and not baked_page:
+                        # Continue the face's own art (or colour) across its tab.
+                        fill_poly(page, face.material, tp, _extend_uvs(pts, face_uvs(face, face.material), k, tp))
+                    if tab.outer and fill_faces and not baked_page:
                         # Outside tab: print the art of the face it covers.
                         partner = res.faces[tab.partner[0]]
                         p_uv = face_uvs(partner, partner.material)
@@ -309,13 +318,15 @@ def export_pages(
             ))
         parts.append("</defs>")
         groups = [
-            ("tabs", f"fill:{_hex(tab_color)};stroke:none"),
+            ("tabs", f"fill:{_hex(tab_color)};stroke:none" if tab_fill else "fill:none;stroke:none"),
             ("faces", ""),
             ("mountain", lines["mountain"]),
             ("valley", lines["valley"]),
             ("cut", lines["cut"]),
             ("numbers", "font-family:sans-serif;fill:#333333"),
         ]
+        if content == "ART_CUT":
+            groups = [(name, style) for name, style in groups if name not in ("mountain", "valley")]
         if lines_only:
             keep = {"CUT": ("cut",), "CREASE": ("mountain", "valley"),
                     "LINES": ("mountain", "valley", "cut")}[content]
@@ -335,6 +346,30 @@ def export_pages(
         parts.append("</svg>")
         docs.append("\n".join(parts))
     return docs
+
+
+def _extend_uvs(pts, face_uv, k, tab_pts):
+    """UVs for a tab on edge k of a face: the face's own texture mapping
+    carried on past that edge, so its art continues across the tab."""
+    if not face_uv:
+        return None
+    n = len(pts)
+    k1 = (k + 1) % n
+    a, b = pts[k], pts[k1]
+    best, j_best = 0.0, None
+    for j in range(n):
+        if j in (k, k1):
+            continue
+        area = abs((b[0] - a[0]) * (pts[j][1] - a[1]) - (pts[j][0] - a[0]) * (b[1] - a[1]))
+        if area > best:
+            best, j_best = area, j
+    if j_best is None:
+        return None
+    m = g.affine_from_triangles([a, b, pts[j_best]], [face_uv[k], face_uv[k1], face_uv[j_best]])
+    if m is None:
+        return None
+    ma, mb, mc, md, me, mf = m
+    return [(ma * x + mc * y + me, mb * x + md * y + mf) for x, y in tab_pts]
 
 
 def _number(a, b, number, page_h, at=None, outside=False, outward=False):
