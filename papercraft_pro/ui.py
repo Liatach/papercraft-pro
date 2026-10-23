@@ -167,6 +167,7 @@ class PAPERCRAFT_PT_animate(_Child, bpy.types.Panel):
             sub = col.column()
             sub.active = props.fold_one_by_one
             sub.prop(props, "fold_overlap")
+            col.prop(props, "paper_thickness")
             layout.operator("papercraft.build_rig", icon="ARMATURE_DATA")
             return
         entry = live.cached(obj)
@@ -178,6 +179,7 @@ class PAPERCRAFT_PT_animate(_Child, bpy.types.Panel):
         sub = col.column()
         sub.active = props.fold_one_by_one
         sub.prop(props, "fold_overlap")
+        col.prop(props, "paper_thickness")
         if build.rig_is_stale(obj, entry):
             box = layout.box()
             box.alert = True

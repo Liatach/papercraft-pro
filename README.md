@@ -70,7 +70,10 @@ like; selecting a layout or rig jumps to its model.
    Tick **One at a Time** to fold hinge by hinge from the extremities
    inwards (glue tabs first, then the tips, the root piece last); **Overlap**
    sets how much each fold overlaps the next (0 = strictly one after
-   another, 1 = all together). If you change cuts or tabs later
+   another, 1 = all together). **Paper Thickness** (mm) gives the sheet real
+   thickness for renders: glue tabs end up one thickness behind the wall
+   they glue to (outside tabs in front) instead of z-fighting and showing
+   through it. Modifiers you add to the folding mesh survive Rebuild Rig. If you change cuts or tabs later
    the panel shows *Rig is out of date*; **Rebuild Rig** keeps your
    keyframes (Edit Cuts rebuilds it for you when you finish). The bin icon
    removes the rig; **Remove Papercraft** (bin by the model name) removes
@@ -177,6 +180,7 @@ python tests/test_v05.py           # outside tabs, tab fold direction
 python tests/test_v06.py           # cutter exports, clean Full Render bakes
 python tests/test_v07.py           # Edit Cuts always exits cleanly
 python tests/test_v08.py           # art + cut export, colour check, fold order
+python tests/test_v09.py           # paper thickness, tabs clear their walls
 ```
 
 ## Roadmap

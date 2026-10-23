@@ -199,6 +199,12 @@ class PapercraftSettings(bpy.types.PropertyGroup):
         description="How much each fold overlaps the next: 0 = strictly one after "
         "another, 1 = all together (Rebuild Rig to apply)",
     )
+    paper_thickness: FloatProperty(
+        name="Paper Thickness", default=0.0, min=0.0, max=3.0, precision=2,
+        description="Give the folding sheet real thickness in mm (e.g. 0.3 for card). "
+        "Glue tabs then sit one thickness behind the wall they glue to (in front, for "
+        "outside tabs) instead of showing through it. 0 = flat sheet (Rebuild Rig to apply)",
+    )
     tab_fill: BoolProperty(
         name="Grey Tabs", default=True,
         description="Fill plain tabs light grey. Off: tabs stay paper white, outlined "

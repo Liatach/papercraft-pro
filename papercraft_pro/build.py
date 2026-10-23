@@ -274,13 +274,14 @@ def _frame_from_points(pts, k):
     return m
 
 
-RIG_VERSION = 2  # 2: face-down sheet, no upright flip, fold sequencing
+RIG_VERSION = 3  # 2: face-down sheet, no flip, fold order; 3: paper thickness
 
 
 def _sequence_settings(props):
     if props is None:
-        return (False, 0.0)
-    return (bool(props.fold_one_by_one), round(float(props.fold_overlap), 4))
+        return (False, 0.0, 0.0)
+    return (bool(props.fold_one_by_one), round(float(props.fold_overlap), 4),
+            round(float(props.paper_thickness), 4))
 
 
 def rig_signature(entry, props=None):
@@ -380,6 +381,12 @@ def remove_rig(src_obj):
         }
         if saved["action"] is not None:
             saved["action"].use_fake_user = True  # survive while the rig is gone
+    folding = T.output(src_obj, T.ROLE_FOLDING)
+    if folding is not None:
+        if saved is None:
+            saved = {"action": None, "slot": None, "fold": 0.0, "assemble": 0.0}
+        saved["modifiers"] = [_modifier_state(m) for m in folding.modifiers
+                              if m.name not in (RIG_MODIFIER, THICKNESS_MODIFIER)]
     for role in (T.ROLE_FOLDING, T.ROLE_RIG, T.ROLE_TARGET):
         for obj in T.outputs(src_obj, role):
             data = obj.data
@@ -390,6 +397,55 @@ def remove_rig(src_obj):
                 elif isinstance(data, bpy.types.Mesh):
                     bpy.data.meshes.remove(data)
     return saved
+
+
+RIG_MODIFIER = "Fold Rig"
+THICKNESS_MODIFIER = "Paper Thickness"
+
+
+def _modifier_state(mod):
+    """Settings of a modifier the user added to the folding mesh, so a
+    rebuild can put it back."""
+    values = {}
+    for prop in mod.bl_rna.properties:
+        if prop.is_readonly or prop.identifier in ("rna_type", "name", "type"):
+            continue
+        try:
+            values[prop.identifier] = getattr(mod, prop.identifier)
+        except AttributeError:
+            pass
+    return (mod.name, mod.type, values)
+
+
+def _restore_modifier(obj, state):
+    name, kind, values = state
+    try:
+        mod = obj.modifiers.new(name, kind)
+    except (TypeError, RuntimeError):
+        return
+    for key, value in values.items():
+        try:
+            setattr(mod, key, value)
+        except (AttributeError, TypeError, ValueError, RuntimeError):
+            pass
+
+
+def _newell(pts):
+    n = Vector()
+    for k, a in enumerate(pts):
+        b = pts[(k + 1) % len(pts)]
+        n.x += (a.y - b.y) * (a.z + b.z)
+        n.y += (a.z - b.z) * (a.x + b.x)
+        n.z += (a.x - b.x) * (a.y + b.y)
+    return n.normalized() if n.length > 0 else Vector((0.0, 0.0, 1.0))
+
+
+def _ease(u):
+    return f"{u}*{u}*(3-2*{u})"
+
+
+def _window(start, length):
+    return f"min(max((t-{start:.6f})*{1.0 / length:.6f},0),1)"
 
 
 def _add_driver(target_id, data_path, index, owner, prop, factor, start=0.0, length=1.0):
@@ -408,8 +464,7 @@ def _add_driver(target_id, data_path, index, owner, prop, factor, start=0.0, len
         drv.expression = f"t*{factor:.9f}" if factor != 1.0 else "t"
     else:
         # This hinge's own stretch of the slider, eased in and out.
-        u = f"min(max((t-{start:.6f})*{1.0 / length:.6f},0),1)"
-        drv.expression = f"{factor:.9f}*{u}*{u}*(3-2*{u})"
+        drv.expression = f"{factor:.9f}*{_ease(_window(start, length))}"
     return fc
 
 
@@ -460,7 +515,7 @@ def build_rig(context, src_obj, entry, include_tabs=True):
         o.select_set(False)
     view_layer.objects.active = arm
     arm.select_set(True)
-    bone_of_face, hinges, roots, tab_bones = {}, [], [], []
+    bone_of_face, hinges, roots, tab_bones, tab_axes = {}, [], [], [], {}
     bpy.ops.object.mode_set(mode="EDIT")
     try:
         ebones = arm_data.edit_bones
@@ -497,6 +552,10 @@ def build_rig(context, src_obj, entry, include_tabs=True):
                 info = res.edges[_key(face, k)]
                 tab_bones.append((name, tab))
                 hinges.append((name, info.angle))
+                # Sheet normal (printed side) in this bone's rest axes, for
+                # sliding the tab one paper thickness off the wall it glues to.
+                n = _newell(world_pts[tab.face])
+                tab_axes[name] = (n.dot(eb.x_axis), n.dot(eb.y_axis), n.dot(eb.z_axis))
         rest = {eb.name: eb.matrix.copy() for eb in ebones}
     finally:
         bpy.ops.object.mode_set(mode="OBJECT")
@@ -511,6 +570,30 @@ def build_rig(context, src_obj, entry, include_tabs=True):
         pb.rotation_mode = "XYZ"
         start, length = schedule[name]
         _add_driver(pb, "rotation_euler", 1, arm, "fold", angle, start, length)
+
+    # Paper thickness: glued tabs can't share the plane of the wall they glue
+    # to (they'd z-fight and show through). Each tab slides one paper
+    # thickness off it as it folds: behind the wall for inside tabs, in
+    # front of it for outside tabs. The slide is the tab's printed-side
+    # normal after its fold, in the bone's rest axes (pose location is
+    # applied before the bone's own rotation).
+    import math
+
+    gap = props.paper_thickness * frame.unit * 1.1
+    if gap > 0.0:
+        angle_of = dict(hinges)
+        for name, tab in tab_bones:
+            a, b, c = tab_axes[name]
+            th = angle_of[name]
+            nx = a * math.cos(th) + c * math.sin(th)
+            nz = -a * math.sin(th) + c * math.cos(th)
+            side = 1.0 if tab.outer else -1.0
+            start, length = schedule[name]
+            pb = arm.pose.bones[name]
+            for index, comp in ((0, nx), (1, b), (2, nz)):
+                if abs(comp) < 1e-9:
+                    continue
+                _add_driver(pb, "location", index, arm, "fold", side * gap * comp, start, length)
 
     # Root bones: the sheet lies printed side down, so pieces fold up and
     # rest on their root face like real paper. One Copy Transforms per piece:
@@ -588,9 +671,23 @@ def build_rig(context, src_obj, entry, include_tabs=True):
         if vg is None:
             vg = vgroups[gname] = folding.vertex_groups.new(name=gname)
         vg.add(list(poly.vertices), 1.0, "REPLACE")
-    mod = folding.modifiers.new("Fold Rig", "ARMATURE")
+    mod = folding.modifiers.new(RIG_MODIFIER, "ARMATURE")
     mod.object = arm
     folding.parent = arm
+    if props.paper_thickness > 0.0:
+        # Thickness grows behind the printed side (into the model), so the
+        # printed surface stays exactly on the model's surface.
+        solid = folding.modifiers.new(THICKNESS_MODIFIER, "SOLIDIFY")
+        solid.thickness = props.paper_thickness * frame.unit
+        solid.offset = -1.0
+        solid.use_even_offset = True
+        # No rim faces: at a glued seam a piece's rim lies in the plane of
+        # the neighbouring wall and renders as a dark line.
+        solid.use_rim = False
+    for state in (saved_anim or {}).get("modifiers", ()):
+        if props.paper_thickness > 0.0 and state[1] == "SOLIDIFY":
+            continue  # Paper Thickness replaces a hand-added Solidify
+        _restore_modifier(folding, state)
 
     arm["papercraft_signature"] = rig_signature(entry, src_obj.papercraft)
     if saved_anim:
