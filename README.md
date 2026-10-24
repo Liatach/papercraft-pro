@@ -27,6 +27,10 @@ By Kim Lang / Liatach Makes. Written from scratch; GPL-3.0-or-later.
 * **Fold animation**: a hinge rig folds the printed sheet up and assembles it
   onto the model, ready to keyframe.
 
+![An example low poly model unfold](docs/images/donutUnfold720p.gif).
+
+*Specifying cuts and tab direction yields much cleaner part layouts as above, than the automatic unwrap especially on complex models as below.*
+
 ![The fold rig folding a sheet up into the model](docs/images/SuzanneFlatten720p.gif
 )
 
@@ -190,8 +194,10 @@ Edit Cuts can no longer get stuck. Sidebar and other editors stay clickable, the
 
 * Drag pieces around the page; PDF export
 * Pop-up mechanism design add-on built on the same hinge rig
+* Joining parts of separate models with a bridge mode
+* Improving animation options
 
 ## Licence
-
-GPL-3.0-or-later, see [LICENSE](LICENSE). Blender is a trademark of the
-Blender Foundation; this add-on is not affiliated with or endorsed by it.
+Made by [Kim Lang](https://kim-lang.com/) [@Liatach](https://github.com/Liatach) with LLM assistance 2026
+GPL-3.0-or-later, see [LICENSE](LICENSE). 
+Blender is a trademark of the Blender Foundation; this add-on is not affiliated with or endorsed by it.
