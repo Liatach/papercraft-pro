@@ -100,7 +100,7 @@ A *Join* made with Edit Cuts overrides a material/colour/sharp cut.
 
 * **Print: Baked Material** (default): Cycles bakes what the material shows
   onto each page, so anything prints: image textures on any UV map, layered
-  paint setups such as the Paint System add-on (its `PS_UVMap` and grouped
+  paint setups such as the very excellent [Paint System](https://extensions.blender.org/add-ons/paint-system/) add-on (its `PS_UVMap` and grouped
   layers), procedurals and vertex colours. *Auto* (default) bakes the base
   colour and falls back to *Emission* for materials that colour through an
   emission path (Paint System materials often do), or pick *Base Colour*,
