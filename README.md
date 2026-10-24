@@ -27,7 +27,7 @@ By Kim Lang / Liatach Makes. Written from scratch; GPL-3.0-or-later.
 * **Fold animation**: a hinge rig folds the printed sheet up and assembles it
   onto the model, ready to keyframe.
 
-![An example low poly model unfold](docs/images/donutUnfold720p.gif).
+![An example low poly model unfold](docs/images/donutUnfold720p.gif)
 
 *Specifying cuts and tab direction yields much cleaner part layouts as above, than the automatic unwrap especially on complex models as below.*
 
@@ -39,7 +39,8 @@ By Kim Lang / Liatach Makes. Written from scratch; GPL-3.0-or-later.
 1. Download the latest `papercraft_pro-x.y.z.zip` from
    [Releases](../../releases), or build it with `scripts/build.sh`.
 2. In Blender: **Edit → Preferences → Get Extensions → ⌄ → Install from Disk**.
-3. Open the sidebar (**N**) in the 3D view and pick the **Papercraft** tab.
+3. Or just drag and drop the zip into Blender.
+4. Open the sidebar (**N**) in the 3D view and pick the **Papercraft** tab.
 
 Upgrading from the earlier *Papercraft Unfold* builds? Uninstall that first;
 your models' cuts and settings carry over.
