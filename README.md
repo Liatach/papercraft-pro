@@ -3,7 +3,7 @@
 **Unfold Blender models into printable papercraft: glue tabs, live page
 layout, cutter-ready SVGs and an animated fold rig.**
 
-![Papercraft Pro: a model half unfolded onto printer paper](docs/images/hero.png)
+![Papercraft Pro: a model half unfolded onto printer paper](docs/images/Hero%20with%20text1.png)
 
 A Blender extension (4.2+) that unfolds a mesh into papercraft pieces with
 glue tabs, lays them out live on standard pages beside the model, exports
@@ -27,14 +27,19 @@ By Kim Lang / Liatach Makes. Written from scratch; GPL-3.0-or-later.
 * **Fold animation**: a hinge rig folds the printed sheet up and assembles it
   onto the model, ready to keyframe.
 
-![The fold rig folding a sheet up into the model](docs/images/unfold.gif)
+![An example low poly model unfold](docs/images/donutUnfold720p.gif)
+
+*Specifying cuts and tab direction yields much cleaner part layouts as above, than the automatic unwrap especially on complex models as below.*
+
+![The fold rig folding a sheet up into the model](docs/images/SuzanneFlatten720p.gif)
 
 ## Install
 
 1. Download the latest `papercraft_pro-x.y.z.zip` from
    [Releases](../../releases), or build it with `scripts/build.sh`.
 2. In Blender: **Edit → Preferences → Get Extensions → ⌄ → Install from Disk**.
-3. Open the sidebar (**N**) in the 3D view and pick the **Papercraft** tab.
+3. Or just drag and drop the zip into Blender.
+4. Open the sidebar (**N**) in the 3D view and pick the **Papercraft** tab.
 
 Upgrading from the earlier *Papercraft Unfold* builds? Uninstall that first;
 your models' cuts and settings carry over.
@@ -106,7 +111,7 @@ A *Join* made with Edit Cuts overrides a material/colour/sharp cut.
 
 * **Print: Baked Material** (default): Cycles bakes what the material shows
   onto each page, so anything prints: image textures on any UV map, layered
-  paint setups such as the Paint System add-on (its `PS_UVMap` and grouped
+  paint setups such as the very excellent [Paint System](https://extensions.blender.org/add-ons/paint-system/) add-on (its `PS_UVMap` and grouped
   layers), procedurals and vertex colours. *Auto* (default) bakes the base
   colour and falls back to *Emission* for materials that colour through an
   emission path (Paint System materials often do), or pick *Base Colour*,
@@ -187,13 +192,36 @@ python tests/test_v08.py           # art + cut export, colour check, fold order
 python tests/test_v09.py           # paper thickness, tabs clear their walls
 python tests/test_v10.py           # PDF export, trimmed baked pages
 ```
+v0.10.0: PDF export and reliable bleed
 
+Export PDF: every page in one PDF at true size, with vector lines, real text numbers and full-resolution art with its bleed. Opens reliably in Photoshop, Krita and print shops.
+Tabs that carry art now get bleed too, and baked pages are trimmed to the pieces plus bleed in the image itself, so every program shows the same edge.
+
+v0.9.0: Paper thickness
+
+Paper Thickness (Fold Animation): gives the folding sheet real thickness for renders. Glue tabs sit one paper thickness behind the wall they glue to (outside tabs in front), so they no longer show through the walls in renders.
+Modifiers you add to the folding mesh are kept when you rebuild the rig.
+
+v0.8.0: Exports, colour and fold animation
+
+Art + Cut Lines export: art on the pieces and carried onto the tabs, with only the cut outlines drawn and no fold lines over the art. Saved with an _art suffix.
+Texture on Tabs now works with Image Textures and Flat Colours, not just Baked.
+Grey Tabs option: turn it off to leave plain tabs paper white.
+True bake colours: each bake checks itself against a known grey, fixing washed-out prints on some Blender builds.
+Fold rig starts printed side down: pieces fold up off the table like real paper, with no flip.
+One at a Time fold: hinges fold in turn from the extremities inwards (glue tabs, then tips, root last), with an Overlap control.
+
+v0.7.1: Edit Cuts fixes
+
+Edit Cuts can no longer get stuck. Sidebar and other editors stay clickable, the button becomes Done Editing while the tool is on, and errors, Edit Mode or loading a file all end the tool cleanly.
 ## Roadmap
 
-* Drag pieces around the page; PDF export
+* Drag pieces around the page
 * Pop-up mechanism design add-on built on the same hinge rig
+* Joining parts of separate models with a bridge mode
+* Improving animation options
 
 ## Licence
-
-GPL-3.0-or-later, see [LICENSE](LICENSE). Blender is a trademark of the
-Blender Foundation; this add-on is not affiliated with or endorsed by it.
+Made by [Kim Lang](https://kim-lang.com/) [@Liatach](https://github.com/Liatach) with LLM assistance 2026
+GPL-3.0-or-later, see [LICENSE](LICENSE). 
+Blender is a trademark of the Blender Foundation; this add-on is not affiliated with or endorsed by it.
