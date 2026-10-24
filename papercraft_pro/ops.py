@@ -225,6 +225,62 @@ class PAPERCRAFT_OT_export_svg(_NeedsModel, bpy.types.Operator, ExportHelper):
         return {"FINISHED"}
 
 
+class PAPERCRAFT_OT_export_pdf(_NeedsModel, bpy.types.Operator, ExportHelper):
+    bl_idname = "papercraft.export_pdf"
+    bl_label = "Export PDF"
+    bl_description = (
+        "Write every page into one PDF at true size: vector lines, art at full "
+        "resolution with its bleed (opens reliably in Photoshop, Krita and print shops)"
+    )
+
+    filename_ext = ".pdf"
+    filter_glob: StringProperty(default="*.pdf", options={"HIDDEN"})
+
+    def draw(self, context):
+        from .ui import draw_export
+
+        obj = _target(context)
+        if obj is not None:
+            draw_export(self.layout, obj.papercraft)
+
+    def invoke(self, context, event):
+        src = _target(context)
+        if src is not None and not self.filepath:
+            blend_dir = (
+                os.path.dirname(bpy.data.filepath) if bpy.data.filepath else os.path.expanduser("~")
+            )
+            self.filepath = os.path.join(blend_dir, f"{bpy.path.clean_name(src.name)}.pdf")
+        return super().invoke(context, event)
+
+    def execute(self, context):
+        obj = _target(context)
+        entry = live.get_or_build(context, obj)
+        if entry is None:
+            return {"CANCELLED"}
+        path = write_pdf(context, obj, entry, self.filepath, self)
+        if path is None:
+            return {"CANCELLED"}
+        self.report({"INFO"}, f"Wrote {os.path.basename(path)}")
+        return {"FINISHED"}
+
+
+def write_pdf(context, obj, entry, filepath, reporter=None):
+    from .core.pdf import svgs_to_pdf
+    from .textures import decode_data_uri
+
+    docs = svg_documents(context, obj, entry, reporter)
+    if docs is None:
+        return None
+    base, ext = os.path.splitext(filepath)
+    suffix = SUFFIX.get(obj.papercraft.export_content, "")
+    if suffix and not base.endswith(suffix):
+        base += suffix
+    path = base + (ext or ".pdf")
+    with open(path, "wb") as fh:
+        fh.write(svgs_to_pdf(docs, decode_data_uri, title=obj.name))
+    return path
+
+
 SUFFIX = {"PRINT": "", "ART_CUT": "_art", "CUT": "_cut", "CREASE": "_crease", "LINES": "_lines"}
 
 
@@ -245,10 +301,13 @@ def svg_documents(context, obj, entry, reporter=None):
         wm.progress_begin(0, max(entry.lay.page_count, 1))
         try:
             margin = props.tab_height + 1.0 if art_tabs else props.bleed + 0.2
+            from .core.svg import page_clip_polygons
+
             page_images = bake_pages(
                 context, obj, entry,
                 dpi=props.bake_dpi, bake_pass=props.bake_pass, margin_mm=margin,
                 progress=wm.progress_update,
+                clip=page_clip_polygons(entry.res, entry.lay, props.bleed, art_tabs),
             )
         except RuntimeError as exc:
             if reporter is not None:
@@ -300,6 +359,7 @@ classes = (
     PAPERCRAFT_OT_clear,
     PAPERCRAFT_OT_frame_layout,
     PAPERCRAFT_OT_reset_layout,
+    PAPERCRAFT_OT_export_pdf,
     PAPERCRAFT_OT_build_rig,
     PAPERCRAFT_OT_remove_rig,
     PAPERCRAFT_OT_animate,

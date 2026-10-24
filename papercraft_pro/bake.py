@@ -17,7 +17,7 @@ from mathutils import Vector
 from .build import write_corner_layers
 from .core.geom import polygon_area
 from .core.svg import Texture
-from .textures import _encode_pixels
+from .textures import _encode_pixels, polygon_mask
 
 BAKE_UV = "PapercraftPage"
 PASSES = {
@@ -208,8 +208,11 @@ def _baked_brightness(image):
 
 
 def bake_pages(context, src_obj, entry, dpi=200, bake_pass="AUTO", margin_mm=0.3,
-               samples=None, progress=None):
+               samples=None, progress=None, clip=None):
     """Return one Texture (data: URI PNG) per page, or None for empty pages.
+
+    clip: per page polygons (page mm) to trim each page image to, so the
+    pieces + bleed are in the PNG itself (no SVG clip path needed).
 
     The model's own materials are never modified: the bake runs on
     temporary copies (adding a bake target to a material and restoring its
@@ -304,9 +307,12 @@ def bake_pages(context, src_obj, entry, dpi=200, bake_pass="AUTO", margin_mm=0.3
                 chosen = chosen or candidate
                 steps = _srgb_steps(check_img)
                 srgb_steps.append(steps)
-                png = _encode_pixels(image, max(width, height), srgb_steps=steps)
+                mask = None
+                if clip is not None and page < len(clip):
+                    mask = polygon_mask(width, height, lay.page_w, lay.page_h, clip[page])
+                png = _encode_pixels(image, max(width, height), srgb_steps=steps, alpha_mask=mask)
                 uri = f"data:image/png;base64,{base64.b64encode(png).decode('ascii')}"
-                results.append(Texture(uri, width, height))
+                results.append(Texture(uri, width, height, masked=mask is not None))
             finally:
                 bpy.data.objects.remove(obj, do_unlink=True)
                 bpy.data.meshes.remove(mesh)

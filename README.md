@@ -78,7 +78,10 @@ like; selecting a layout or rig jumps to its model.
    keyframes (Edit Cuts rebuilds it for you when you finish). The bin icon
    removes the rig; **Remove Papercraft** (bin by the model name) removes
    everything generated for that model.
-6. **Export SVG Pages** writes one SVG per page. **Content** chooses what
+6. **Export PDF** writes every page into one PDF at true size (vector
+   lines, real text numbers, art at full resolution with its bleed): the
+   most reliable way into Photoshop, Krita or a print shop, and it opens at
+   whatever resolution you need for PNGs. **Export SVG Pages** writes one SVG per page. **Content** chooses what
    goes in: *Print* (art, tabs, lines, numbers); *Art + Cut Lines* (art on
    the pieces and carried onto the tabs, with only the cut outlines drawn:
    no fold lines over the art; saved with an `_art` suffix); or, for a cutting machine,
@@ -119,8 +122,9 @@ A *Join* made with Edit Cuts overrides a material/colour/sharp cut.
 * **Texture on Tabs** (Baked, Image Textures or Flat Colours) carries each
   face's art on across its tabs, so tiny gaps at glued seams don't show tab
   colour. **Grey Tabs** off leaves plain tabs paper white.
-* **Bleed**: colour runs a little past each edge so imperfect cuts don't
-  show white.
+* **Bleed**: colour runs a little past each edge (tabs included) so
+  imperfect cuts don't show white. Baked pages are trimmed to the pieces
+  plus bleed in the image itself, so every program shows the same edge.
 * **Numbers**: *On Faces* (inside both glued edges), *Tabs & Scrap* (on
   the tab, and on the scrap just outside the other edge, so nothing prints
   on the art), or *Off*.
@@ -181,6 +185,7 @@ python tests/test_v06.py           # cutter exports, clean Full Render bakes
 python tests/test_v07.py           # Edit Cuts always exits cleanly
 python tests/test_v08.py           # art + cut export, colour check, fold order
 python tests/test_v09.py           # paper thickness, tabs clear their walls
+python tests/test_v10.py           # PDF export, trimmed baked pages
 ```
 
 ## Roadmap

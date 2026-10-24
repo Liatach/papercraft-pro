@@ -298,6 +298,37 @@ def affine_from_triangles(src, dst):
     return (a, b, c, d, e, f)
 
 
+def grow_convex(poly, amount, miter=3.0):
+    """Move every edge of a convex polygon outwards by `amount` (print
+    bleed). Sharp corners are capped at `miter` x amount."""
+    n = len(poly)
+    if n < 3 or amount <= 0.0:
+        return list(poly)
+    area = sum(poly[k][0] * poly[(k + 1) % n][1] - poly[(k + 1) % n][0] * poly[k][1]
+               for k in range(n))
+    sign = 1.0 if area > 0 else -1.0  # outward normal is right of each edge for CCW
+    out = []
+    for k in range(n):
+        p0, p1, p2 = poly[k - 1], poly[k], poly[(k + 1) % n]
+        d1 = sub2(p1, p0)
+        d2 = sub2(p2, p1)
+        l1, l2 = len2(d1), len2(d2)
+        if l1 < EPS or l2 < EPS:
+            out.append(p1)
+            continue
+        n1 = (d1[1] / l1 * sign, -d1[0] / l1 * sign)
+        n2 = (d2[1] / l2 * sign, -d2[0] / l2 * sign)
+        bis = add2(n1, n2)
+        bl = len2(bis)
+        if bl < EPS:
+            out.append(add2(p1, mul2(n1, amount)))
+            continue
+        cos_half = bl / 2.0
+        reach = min(amount / max(cos_half, EPS), amount * miter)
+        out.append(add2(p1, mul2(bis, reach / bl)))
+    return out
+
+
 def grow_triangle(tri, amount):
     """Push each corner of a triangle outwards so its edges move out by
     roughly `amount` (used for print bleed)."""

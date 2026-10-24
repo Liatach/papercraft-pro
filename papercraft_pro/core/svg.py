@@ -34,10 +34,11 @@ class Texture:
     """An image to print on faces. href is a data: URI (or a file path);
     width/height are the image's pixel size (UV 0..1 spans these)."""
 
-    __slots__ = ("href", "width", "height")
+    __slots__ = ("href", "width", "height", "masked")
 
-    def __init__(self, href, width, height):
+    def __init__(self, href, width, height, masked=False):
         self.href = href
+        self.masked = masked  # a baked page already trimmed to the pieces + bleed
         self.width = width
         self.height = height
 
@@ -74,6 +75,24 @@ def _line_styles(style, width, color=(0.0, 0.0, 0.0), opacity=1.0, dashed=True):
     if style == "NONE":
         styles = {k: v + ";display:none" for k, v in styles.items()}
     return styles
+
+
+def page_clip_polygons(res, lay, bleed=0.2, tab_texture=False):
+    """Per page, the polygons (page mm, y up) a baked page image shows
+    through: every face grown by the bleed, plus tabs that carry art (all
+    tabs with Texture on Tabs, outside tabs always), grown too."""
+    out = [[] for _ in range(max(lay.page_count, 1))]
+    for isl in res.islands:
+        page = lay.placements[isl.index].page
+        for f in isl.order:
+            pts = lay.face_points(res, isl, f)
+            for a, b, c in g.triangulate_2d(pts):
+                out[page].append(g.grow_triangle([pts[a], pts[b], pts[c]], bleed))
+    for tab in lay.tabs:
+        if tab_texture or tab.outer:
+            page = lay.placements[tab.island].page
+            out[page].append(g.grow_convex(lay.tab_points(tab), bleed))
+    return out
 
 
 def export_pages(
@@ -225,11 +244,7 @@ def export_pages(
             pts = lay.face_points(res, isl, f)
             count = len(pts)
             if page_images and page_images[place.page] is not None:
-                for a_, b_, c_ in g.triangulate_2d(pts):
-                    tri = g.grow_triangle([svgp(pts[a_]), svgp(pts[b_]), svgp(pts[c_])], bleed)
-                    page["clip"].append(
-                        f'<polygon points="{" ".join(f"{_fmt(x)},{_fmt(y)}" for x, y in tri)}"/>'
-                    )
+                pass  # the baked page image covers it (see page_clip_polygons)
             elif fill_faces:
                 face_fill(page, face, pts)
             for k in range(count):
@@ -249,12 +264,12 @@ def export_pages(
                     tp = lay.tab_points(tab)
                     poly = f'<polygon points="{" ".join(pt(p) for p in tp)}"/>'
                     page["tabs"].append(poly)
-                    if tab_texture or tab.outer:
-                        page["clip"].append(poly)
                     baked_page = page_images and page_images[place.page] is not None
+                    grown_tp = g.grow_convex(tp, bleed)
                     if tab_texture and not tab.outer and fill_faces and not baked_page:
                         # Continue the face's own art (or colour) across its tab.
-                        fill_poly(page, face.material, tp, _extend_uvs(pts, face_uvs(face, face.material), k, tp))
+                        fill_poly(page, face.material, grown_tp,
+                                  _extend_uvs(pts, face_uvs(face, face.material), k, grown_tp))
                     if tab.outer and fill_faces and not baked_page:
                         # Outside tab: print the art of the face it covers.
                         partner = res.faces[tab.partner[0]]
@@ -265,7 +280,8 @@ def export_pages(
                                 (sum(p_uv[c][0] * w for c, w in ws), sum(p_uv[c][1] * w for c, w in ws))
                                 for ws in tab.weights
                             ]
-                        fill_poly(page, partner.material, tp, tab_uv)
+                            tab_uv = _map_uvs(tp, tab_uv, grown_tp)
+                        fill_poly(page, partner.material, grown_tp, tab_uv)
                     page["cut"].append(
                         f'<path d="M {pt(tp[0])} ' + " ".join(f"L {pt(p)}" for p in tp[1:]) + '"/>'
                     )
@@ -283,6 +299,7 @@ def export_pages(
                 if numbered and numbers == "FACES":
                     page["numbers"].append(_number(a, b, info.number, H))
 
+    clip_polys = page_clip_polygons(res, lay, bleed, tab_texture) if page_images else None
     docs = []
     for n, layers in enumerate(pages, 1):
         footer = (
@@ -308,12 +325,16 @@ def export_pages(
         parts.extend(layers["defs"])
         baked = page_images[n - 1] if page_images and n - 1 < len(page_images) else None
         if baked is not None:
-            parts.append('<clipPath id="pieces" clipPathUnits="userSpaceOnUse">')
-            parts.extend(layers["clip"])
-            parts.append("</clipPath>")
+            clip_attr = ""
+            if not baked.masked:  # trim with a clip path (renderers vary here)
+                parts.append('<clipPath id="pieces" clipPathUnits="userSpaceOnUse">')
+                for poly in clip_polys[n - 1]:
+                    parts.append(f'<polygon points="{" ".join(pt(q) for q in poly)}"/>')
+                parts.append("</clipPath>")
+                clip_attr = 'clip-path="url(#pieces)" '
             layers["faces"].insert(0, (
                 f'<image x="0" y="0" width="{_fmt(lay.page_w)}" height="{_fmt(lay.page_h)}" '
-                f'preserveAspectRatio="none" clip-path="url(#pieces)" '
+                f'preserveAspectRatio="none" {clip_attr}'
                 f'xlink:href="{baked.href}" href="{baked.href}"/>'
             ))
         parts.append("</defs>")
@@ -346,6 +367,17 @@ def export_pages(
         parts.append("</svg>")
         docs.append("\n".join(parts))
     return docs
+
+
+def _map_uvs(pts, uvs, new_pts):
+    """UVs for new_pts by extending the affine pts -> uvs mapping."""
+    n = len(pts)
+    for j in range(1, n - 1):
+        m = g.affine_from_triangles([pts[0], pts[j], pts[j + 1]], [uvs[0], uvs[j], uvs[j + 1]])
+        if m is not None:
+            a, b, c, d, e, f = m
+            return [(a * x + c * y + e, b * x + d * y + f) for x, y in new_pts]
+    return None
 
 
 def _extend_uvs(pts, face_uv, k, tab_pts):

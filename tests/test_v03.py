@@ -233,7 +233,7 @@ for n, d in enumerate(docs, 1):
     xml.dom.minidom.parseString(d)
     with open(f"{OUT}/baked_monkey_p{n}.svg", "w") as fh:
         fh.write(d)
-assert "clip-path=\"url(#pieces)\"" in docs[0]
+assert "clip-path" not in docs[0] and "data:image/png" in docs[0]  # trimmed page image
 # Decode the baked page and check it has varied, opaque colour where pieces are.
 uri = docs[0].split('href="data:image/png;base64,')[1].split('"')[0]
 png = base64.b64decode(uri)

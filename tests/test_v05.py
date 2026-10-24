@@ -132,7 +132,7 @@ want = palette[partner.source]
 print("baked page at outside tab:", [round(c, 2) for c in rgba], "covered face colour", want)
 assert rgba[3] > 0.9, "outside tab area was not baked"
 assert all(abs(rgba[k] - want[k]) < 0.25 for k in range(3)), "tab shows the wrong art"
-assert 'clip-path="url(#pieces)"' in docs[0]
+assert "clip-path" not in docs[0], "the page image is trimmed itself: no clip path"
 
 # Rig still folds exactly with an outside tab (and its material carries over).
 assert bpy.ops.papercraft.build_rig() == {"FINISHED"}

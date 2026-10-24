@@ -76,10 +76,36 @@ assert art.count('href="#tex0"') > plain.count('href="#tex0"')
 # Baked Art + Cut: tabs are part of the clip (art shows on them).
 props.texture_mode = "BAKE"
 baked = svg_documents(ctx, cube, entry)[0]
-clip = baked.split('<clipPath id="pieces"')[1].split("</clipPath>")[0]
-assert clip.count("<polygon") >= ntabs + 6
-assert layer(baked, "mountain") is None
-print("Art + Cut (baked): tabs carry the baked art")
+assert "clipPath" not in baked and layer(baked, "mountain") is None
+uri = baked.split('href="data:image/png;base64,')[1].split('"')[0]
+page_png = os.path.join(OUT, "v08_artcut_page.png")
+with open(page_png, "wb") as fh:
+    fh.write(base64.b64decode(uri))
+pim = bpy.data.images.load(page_png)
+PW, PH = pim.size
+pix = np.empty(PW * PH * 4, np.float32)
+pim.pixels.foreach_get(pix)
+pix = pix.reshape(PH, PW, 4)
+
+
+def alpha_at(x_mm, y_mm):
+    return pix[int(y_mm / entry.lay.page_h * PH), int(x_mm / entry.lay.page_w * PW), 3]
+
+
+from papercraft_pro.core import geom as G  # noqa: E402
+
+for t in entry.lay.tabs:
+    tp = entry.lay.tab_points(t)
+    c = G.polygon_centroid(tp)
+    assert alpha_at(*c) > 0.9, "tab art missing"
+    # Bleed: just past the tab's outer cut line (0.1 mm out, bleed is 0.2).
+    a, b = tp[1], tp[2]
+    mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+    d = (mid[0] - c[0], mid[1] - c[1])
+    ln = (d[0] ** 2 + d[1] ** 2) ** 0.5
+    assert alpha_at(mid[0] + d[0] / ln * 0.1, mid[1] + d[1] / ln * 0.1) > 0.5, "no bleed past tab"
+    assert alpha_at(mid[0] + d[0] / ln * 1.0, mid[1] + d[1] / ln * 1.0) < 0.01, "art past the bleed"
+print("Art + Cut (baked): page image trimmed to pieces + tabs + 0.2 mm bleed, no clip path")
 
 # ------------------------------------------------------------ Grey Tabs off
 props.export_content = "PRINT"

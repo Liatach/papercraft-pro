@@ -242,7 +242,9 @@ class PAPERCRAFT_PT_export(_Child, bpy.types.Panel):
 
     def draw(self, context):
         draw_export(self.layout, T.target(context).papercraft)
-        self.layout.operator("papercraft.export_svg", icon="EXPORT")
+        row = self.layout.row(align=True)
+        row.operator("papercraft.export_svg", text="Export SVG Pages", icon="EXPORT")
+        row.operator("papercraft.export_pdf", text="Export PDF", icon="FILE")
 
 
 classes = (
