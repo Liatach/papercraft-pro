@@ -27,7 +27,7 @@ By Kim Lang / Liatach Makes. Written from scratch; GPL-3.0-or-later.
 * **Fold animation**: a hinge rig folds the printed sheet up and assembles it
   onto the model, ready to keyframe.
 
-![An example low poly model unfold](docs/images/donutUnfold720p.gif)
+![An example low poly model unfold](docs/images/donutscaledsmlr.gif)
 
 *Specifying cuts and tab direction yields much cleaner part layouts as above, than the automatic unwrap especially on complex models as below.*
 
