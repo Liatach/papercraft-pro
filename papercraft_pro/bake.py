@@ -133,6 +133,144 @@ def _srgb_steps(image):
     return 1 - found
 
 
+def textures_decode(context, check_colorspace="sRGB"):
+    """Does this Blender's Cycles decode sRGB image textures? A bake of a
+    plain grey next to an sRGB texture of the same grey must agree. Some
+    builds (e.g. with a system OpenColorIO config) skip the decode, so
+    painted textures render and bake pale while EEVEE shows them right.
+    check_colorspace exists for tests."""
+    import numpy as np
+
+    from .textures import to_srgb
+
+    scene = context.scene
+    view_layer = context.view_layer
+    out_img = bpy.data.images.new("Papercraft Decode Check", 16, 8, alpha=True)
+    tex_img = bpy.data.images.new("Papercraft Decode Texture", 4, 4, alpha=False)
+    srgb_grey = float(to_srgb(np.array(CHECK_LINEAR)))
+    try:  # before the pixels: changing colour space regenerates the image
+        tex_img.colorspace_settings.name = check_colorspace
+    except TypeError:
+        pass
+    tex_img.pixels.foreach_set(np.array([srgb_grey, srgb_grey, srgb_grey, 1.0] * 16, np.float32))
+    mesh = bpy.data.meshes.new("Papercraft Decode Check")
+    mesh.from_pydata([(0, 0, 0), (0.01, 0, 0), (0.01, 0.01, 0), (0, 0.01, 0),
+                      (0.02, 0, 0), (0.03, 0, 0), (0.03, 0.01, 0), (0.02, 0.01, 0)],
+                     [], [[0, 1, 2, 3], [4, 5, 6, 7]])
+    uv = mesh.uv_layers.new(name=BAKE_UV)
+    uv.data.foreach_set("uv", (0, 0, 0.5, 0, 0.5, 1, 0, 1, 0.5, 0, 1, 0, 1, 1, 0.5, 1))
+    mats = []
+    for use_texture in (False, True):
+        m = bpy.data.materials.new("Papercraft Decode Check")
+        m.use_nodes = True
+        nt = m.node_tree
+        out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
+        emit = nt.nodes.new("ShaderNodeEmission")
+        emit.inputs["Color"].default_value = (CHECK_LINEAR, CHECK_LINEAR, CHECK_LINEAR, 1.0)
+        if use_texture:
+            t = nt.nodes.new("ShaderNodeTexImage")
+            t.image = tex_img
+            t.interpolation = "Closest"
+            nt.links.new(t.outputs["Color"], emit.inputs["Color"])
+        nt.links.new(emit.outputs[0], out.inputs["Surface"])
+        target = nt.nodes.new("ShaderNodeTexImage")
+        target.image = out_img
+        nt.nodes.active = target
+        mats.append(m)
+        mesh.materials.append(m)
+    mesh.polygons.foreach_set("material_index", [0, 1])
+    obj = bpy.data.objects.new("Papercraft Decode Check", mesh)
+    obj.location = (0.0, 0.0, -10000.0)
+    scene.collection.objects.link(obj)
+    prev_sel = [o for o in context.selected_objects]
+    prev_active = view_layer.objects.active
+    try:
+        for o in prev_sel:
+            o.select_set(False)
+        obj.select_set(True)
+        view_layer.objects.active = obj
+        _bake(scene, "EMIT", 1, 1)
+        w, h = out_img.size
+        px = np.empty(w * h * 4, dtype=np.float32)
+        out_img.pixels.foreach_get(px)
+        px = px.reshape(h, w, 4)
+        plain = float(np.median(px[2:6, 1:7, :3]))
+        textured = float(np.median(px[2:6, 9:15, :3]))
+    finally:
+        bpy.data.objects.remove(obj, do_unlink=True)
+        bpy.data.meshes.remove(mesh)
+        for m in mats:
+            bpy.data.materials.remove(m)
+        bpy.data.images.remove(out_img)
+        bpy.data.images.remove(tex_img)
+        for o in prev_sel:
+            try:
+                o.select_set(True)
+            except ReferenceError:
+                pass
+        view_layer.objects.active = prev_active
+    # Undecoded, the texture's grey arrives one sRGB step brighter.
+    brighter = float(to_srgb(np.array(plain)))
+    decoded = abs(textured - plain) <= abs(textured - brighter)
+    if not decoded:
+        print(f"Papercraft: Cycles is not decoding sRGB textures here (plain {plain:.3f}, "
+              f"texture {textured:.3f}); decoding them for the bake instead")
+    return decoded
+
+
+def linearize_textures(materials):
+    """Point the bake's material copies at linear float copies of their sRGB
+    image textures (decoded here, marked Non-Color so Cycles takes them as
+    they are). Node groups are copied too, so the originals never change.
+    Returns the datablocks to remove afterwards."""
+    import numpy as np
+
+    from .textures import from_srgb
+
+    groups, images = {}, {}
+
+    def linear_copy(img):
+        if img.name in images:
+            return images[img.name]
+        cs = img.colorspace_settings
+        if img.is_float or cs.is_data or "srgb" not in cs.name.lower():
+            images[img.name] = None
+            return None
+        w, h = img.size
+        if w == 0 or h == 0:
+            images[img.name] = None
+            return None
+        px = np.empty(w * h * 4, dtype=np.float32)
+        img.pixels.foreach_get(px)
+        px = px.reshape(-1, 4)
+        px[:, :3] = from_srgb(px[:, :3])
+        lin = bpy.data.images.new(f"Papercraft Linear ({img.name})", w, h, alpha=True,
+                                  float_buffer=True)
+        lin.colorspace_settings.name = "Non-Color"
+        lin.alpha_mode = img.alpha_mode
+        lin.pixels.foreach_set(px.ravel())
+        images[img.name] = lin
+        return lin
+
+    def fix(tree):
+        for node in tree.nodes:
+            if node.type == "GROUP" and node.node_tree is not None:
+                original = node.node_tree
+                if original.name not in groups:
+                    groups[original.name] = original.copy()
+                    fix(groups[original.name])
+                node.node_tree = groups[original.name]
+            elif node.type == "TEX_IMAGE" and node.image is not None:
+                lin = linear_copy(node.image)
+                if lin is not None:
+                    node.image = lin
+
+    for m in materials:
+        if m is not None and m.node_tree is not None:
+            fix(m.node_tree)
+    return list(groups.values()), [i for i in images.values() if i is not None]
+
+
 def page_of(items):
     return items[0][2] if items and len(items[0]) > 2 else None
 
@@ -266,6 +404,16 @@ def bake_pages(context, src_obj, entry, dpi=200, bake_pass="AUTO", margin_mm=0.3
 
     results = []
     chosen = None
+    fixed_groups, fixed_images = [], []
+    bake_pages.textures_fixed = False
+    try:
+        decoded = textures_decode(context)
+    except Exception as exc:  # the check must never stop a bake
+        print(f"Papercraft: texture decode check skipped: {exc}")
+        decoded = True
+    if not decoded:
+        fixed_groups, fixed_images = linearize_textures(copies)
+        bake_pages.textures_fixed = bool(fixed_images)
     check_img = bpy.data.images.new("Papercraft Bake Check", 16, 16, alpha=True)
     check_obj, check_mat, check_bsdf, check_emit = _check_object(scene, check_img)
     srgb_steps = []
@@ -323,6 +471,13 @@ def bake_pages(context, src_obj, entry, dpi=200, bake_pass="AUTO", margin_mm=0.3
         bpy.data.meshes.remove(check_mesh)
         bpy.data.materials.remove(check_mat)
         bpy.data.images.remove(check_img)
+        for m in copies:
+            bpy.data.materials.remove(m)
+        copies = []
+        for grp in fixed_groups:
+            bpy.data.node_groups.remove(grp)
+        for img in fixed_images:
+            bpy.data.images.remove(img)
         for name in hidden:
             o = bpy.data.objects.get(name)
             if o is not None:

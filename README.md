@@ -119,6 +119,10 @@ A *Join* made with Edit Cuts overrides a material/colour/sharp cut.
   hides the model itself while baking so it can't shadow its own copy.
   Each bake also bakes a small known grey alongside and reads it back, so
   colours come out true whichever way your Blender build stores the result.
+  It also checks that Cycles decodes sRGB image textures: some Blender
+  builds skip that (Cycles renders look paler than the viewport), and the
+  add-on then decodes your paint itself for the bake, so prints match what
+  you painted.
 * **Image Textures**: fast; prints the image feeding Base Color (found
   inside node groups too) through the UV map that image uses.
 * **Flat Colours** / **Lines Only** for quick tests and cutting machines.
@@ -195,6 +199,7 @@ python tests/test_v07.py           # Edit Cuts always exits cleanly
 python tests/test_v08.py           # art + cut export, colour check, fold order
 python tests/test_v09.py           # paper thickness, tabs clear their walls
 python tests/test_v10.py           # PDF export, trimmed baked pages
+python tests/test_v11.py           # pale-texture check and fix
 ```
 
 

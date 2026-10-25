@@ -315,6 +315,12 @@ def svg_documents(context, obj, entry, reporter=None):
             return None
         finally:
             wm.progress_end()
+        if getattr(bake_pages, "textures_fixed", False) and reporter is not None:
+            reporter.report(
+                {"WARNING"},
+                "This Blender's Cycles isn't decoding sRGB image textures (Cycles renders "
+                "look paler than the viewport); the add-on decoded them for this print",
+            )
     return export_pages(
         entry.res,
         entry.lay,
