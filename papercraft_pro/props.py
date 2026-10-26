@@ -10,7 +10,23 @@ from bpy.props import (
     StringProperty,
 )
 
+from .core.board import PRESETS as BOARD_PRESETS
 from .core.layout import PAGE_SIZES_MM
+
+
+def _board_chosen(self, context):
+    """A board preset fills in its thickness, fold and join styles (all still
+    adjustable) and the rig's sheet thickness."""
+    preset = BOARD_PRESETS.get(self.board)
+    if preset is not None:
+        _label, t, fold, radius, join, cut_valleys, _desc = preset
+        self.board_thickness = t
+        self.fold_style = fold
+        self.fold_radius = radius
+        self.join_style = join
+        self.cut_valleys = cut_valleys
+        self.paper_thickness = t
+    _changed(self, context)
 
 
 def _changed(self, context):
@@ -136,6 +152,49 @@ class PapercraftSettings(bpy.types.PropertyGroup):
     tab_height: FloatProperty(name="Tab Height", default=5.0, min=0.5, max=30.0, update=_changed)
     tab_angle: FloatProperty(name="Tab Angle", default=45.0, min=15.0, max=89.0, update=_changed)
 
+    # Material -----------------------------------------------------------
+    board: EnumProperty(
+        name="Material",
+        items=[(k, v[0], v[6]) for k, v in BOARD_PRESETS.items()],
+        default="CARDSTOCK",
+        update=_board_chosen,
+    )
+    board_thickness: FloatProperty(
+        name="Thickness", default=0.3, min=0.0, max=20.0, precision=2, update=_changed,
+        description="Board thickness in mm (behind the printed surface)",
+    )
+    fold_style: EnumProperty(
+        name="Folds",
+        items=[
+            ("CREASE", "Crease", "Score and bend: the board curves round the Fold Radius "
+             "and pieces are shortened to suit"),
+            ("VGROOVE", "V-Groove", "Carve a V out of the back so the printed liner folds "
+             "sharp on the line (corrugated board); grooves are marked on Back Marks pages"),
+        ],
+        default="CREASE",
+        update=_changed,
+    )
+    fold_radius: FloatProperty(
+        name="Fold Radius", default=0.0, min=0.0, max=30.0, precision=2, update=_changed,
+        description="Outside radius of a creased fold in mm (about the thickness for "
+        "greyboard). 0 = sharp folds, nothing shortened",
+    )
+    join_style: EnumProperty(
+        name="Joins",
+        items=[
+            ("TABS", "Glue Tabs", "Glue tabs along the seams, as for paper"),
+            ("MITRE", "Mitre", "Edge to edge, no tabs. Outside corners are bevelled away "
+             "at the back (marked on Back Marks pages) so the boards sit flush"),
+        ],
+        default="TABS",
+        update=_changed,
+    )
+    cut_valleys: BoolProperty(
+        name="Cut Valley Folds", default=False, update=_changed,
+        description="Cut every inward (valley) fold: thick board can't fold that way "
+        "neatly. A Join made with Edit Cuts still wins",
+    )
+
     # Export -------------------------------------------------------------
     export_content: EnumProperty(
         name="Content",
@@ -148,6 +207,9 @@ class PapercraftSettings(bpy.types.PropertyGroup):
             ("CREASE", "Crease Lines Only", "Fold lines only, for scoring; file name ends _crease"),
             ("LINES", "Cut + Crease", "Both in one file, creases in red so they import as a "
              "separate colour layer; file name ends _lines"),
+            ("BACK", "Back Marks", "For thick board: the back of each sheet, mirrored so it "
+             "lines up when printed on the reverse or traced: outlines, V-grooves and mitre "
+             "bevels; file name ends _back"),
         ],
         default="PRINT",
     )
@@ -200,7 +262,7 @@ class PapercraftSettings(bpy.types.PropertyGroup):
         "another, 1 = all together (Rebuild Rig to apply)",
     )
     paper_thickness: FloatProperty(
-        name="Paper Thickness", default=0.0, min=0.0, max=3.0, precision=2,
+        name="Paper Thickness", default=0.0, min=0.0, max=20.0, precision=2,
         description="Give the folding sheet real thickness in mm (e.g. 0.3 for card). "
         "Glue tabs then sit one thickness behind the wall they glue to (in front, for "
         "outside tabs) instead of showing through it. 0 = flat sheet (Rebuild Rig to apply)",
@@ -275,6 +337,8 @@ class PapercraftSettings(bpy.types.PropertyGroup):
             self.scale_mode, self.pages, self.model_size_mm, self.ratio,
             self.tab_height, self.tab_angle,
             self.cut_seams, self.cut_materials, self.cut_colors, self.cut_sharp,
+            round(self.board_thickness, 4), self.fold_style, round(self.fold_radius, 4),
+            self.join_style, self.cut_valleys,
         )
 
     def cut_rules(self):

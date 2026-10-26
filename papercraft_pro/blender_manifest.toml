@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "papercraft_pro"
-version = "0.11.0"
+version = "0.12.0"
 name = "Papercraft Pro"
 tagline = "Unfold models into printable papercraft, with tabs and fold rig"
 maintainer = "Kim Lang (Liatach Makes)"

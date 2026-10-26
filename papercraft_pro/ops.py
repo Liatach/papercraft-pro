@@ -281,7 +281,7 @@ def write_pdf(context, obj, entry, filepath, reporter=None):
     return path
 
 
-SUFFIX = {"PRINT": "", "ART_CUT": "_art", "CUT": "_cut", "CREASE": "_crease", "LINES": "_lines"}
+SUFFIX = {"PRINT": "", "ART_CUT": "_art", "BACK": "_back", "CUT": "_cut", "CREASE": "_crease", "LINES": "_lines"}
 
 
 def svg_documents(context, obj, entry, reporter=None):
@@ -341,6 +341,8 @@ def svg_documents(context, obj, entry, reporter=None):
         content=props.export_content,
         dashed=props.dashed_folds,
         tab_fill=props.tab_fill,
+        board=dict(thickness=props.board_thickness if props.board_thickness >= 1.0 else 0.0,
+                   fold_style=props.fold_style, join_style=props.join_style),
     )
 
 

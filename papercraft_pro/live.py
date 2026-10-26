@@ -3,11 +3,14 @@
 
 import traceback
 
+import math
+
 import bpy
 from bpy.app.handlers import persistent
 
 from . import build
 from . import targets as T
+from .core.board import apply_bend_allowance
 from .core.layout import compute_layout
 from .core.unfold import unfold
 from .mesh_io import read_object
@@ -72,23 +75,40 @@ def regenerate(scene, depsgraph, obj, force=False):
         src.verts, src.polys, src.seams, src.materials,
         priority=priority, max_faces=props.max_faces, joins=src.joins,
         valley_bias=props.valley_bias,
+        cut_valleys=math.radians(max(props.fold_min_angle, 1.0)) if props.cut_valleys else None,
     )
     page_w, page_h = props.page_size()
     value = {"FIT": 1.0, "HEIGHT": props.model_size_mm, "RATIO": props.ratio}[props.scale_mode]
-    lay = compute_layout(
-        res,
-        page_w=page_w,
-        page_h=page_h,
-        margin=props.margin,
-        spacing=props.spacing,
-        scale_mode=props.scale_mode,
-        scale_value=value,
-        max_pages=props.pages,
-        tab_height=props.tab_height,
-        tab_angle=props.tab_angle,
-        tab_flips=frozenset((a, b) if a < b else (b, a) for a, b in src.flips),
-        tab_outer=frozenset((a, b) if a < b else (b, a) for a, b in src.outer),
-    )
+
+    def layout():
+        return compute_layout(
+            res,
+            page_w=page_w,
+            page_h=page_h,
+            margin=props.margin,
+            spacing=props.spacing,
+            scale_mode=props.scale_mode,
+            scale_value=value,
+            max_pages=props.pages,
+            tab_height=props.tab_height,
+            tab_angle=props.tab_angle,
+            tab_flips=frozenset((a, b) if a < b else (b, a) for a, b in src.flips),
+            tab_outer=frozenset((a, b) if a < b else (b, a) for a, b in src.outer),
+            use_tabs=props.join_style == "TABS",
+        )
+
+    lay = layout()
+    if props.fold_style == "CREASE" and props.fold_radius > 0.0:
+        # Creased board: shorten pieces at each fold for the bend. The
+        # shortening is in mm, so it depends on the scale; re-run if the
+        # layout's scale moves (Fit to Pages).
+        for _ in range(3):
+            scale = lay.scale
+            apply_bend_allowance(res, scale, props.fold_radius, props.board_thickness,
+                                 math.radians(props.fold_min_angle))
+            lay = layout()
+            if abs(lay.scale / scale - 1.0) < 0.002:
+                break
     _, poly_map, frame = build.build_layout(scene, obj, src, res, lay)
 
     props.info_islands = len(res.islands)
@@ -101,6 +121,14 @@ def regenerate(scene, depsgraph, obj, force=False):
     messages = []
     if src.rule_cuts:
         messages.append(f"{src.rule_cuts} cut(s) from colour/material/sharp rules")
+    if props.fold_style == "VGROOVE" and props.board_thickness >= 1.0:
+        inward = sum(1 for i in res.edges.values()
+                     if i.kind == "fold" and i.angle < -math.radians(max(props.fold_min_angle, 1.0)))
+        if inward:
+            messages.append(
+                f"{inward} inward fold(s) can't be V-grooved in thick board: cut them "
+                "(Cut Valley Folds; your Edit Cuts joins override it) or crease them"
+            )
     props.info_message = "; ".join(messages + res.warnings + lay.messages)
     entry = CacheEntry(src.signature, settings, src, res, lay, poly_map, frame)
     CACHE[_uid(obj)] = entry

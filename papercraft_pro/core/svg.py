@@ -116,6 +116,7 @@ def export_pages(
     content="PRINT",
     dashed=True,
     tab_fill=True,
+    board=None,
 ):
     """Return a list of SVG documents (strings), one per page.
 
@@ -134,13 +135,18 @@ def export_pages(
     tab_texture  continue each face's art (baked page, image texture or
               flat colour) onto its tabs
     tab_fill  fill plain tabs grey (False: leave them paper white)
+    board     thick materials: dict(thickness=mm, fold_style, join_style).
+              Content BACK draws the back of each sheet mirrored (outlines,
+              V-grooves with their fold line, mitre bevels).
     fold_min_angle  folds flatter than this (degrees) are not drawn
     bleed     mm of colour/texture spill past edges, hides white slivers
     """
     H = lay.page_h
     min_fold = math.radians(max(0.0, fold_min_angle))
     lines = _line_styles(line_style, line_width, line_color, line_opacity, dashed)
-    lines_only = content in ("CUT", "CREASE", "LINES")
+    lines_only = content in ("CUT", "CREASE", "LINES", "BACK")
+    mirror = content == "BACK"
+    W = lay.page_w
     if content == "ART_CUT":
         tab_texture = True
     if lines_only:
@@ -164,10 +170,10 @@ def export_pages(
         numbers = "OFF"
 
     def svgp(p):
-        return (p[0], H - p[1])
+        return (W - p[0] if mirror else p[0], H - p[1])
 
     def pt(p):
-        return f"{_fmt(p[0])},{_fmt(H - p[1])}"
+        return f"{_fmt(W - p[0] if mirror else p[0])},{_fmt(H - p[1])}"
 
     def line(a, b):
         return f'<path d="M {pt(a)} L {pt(b)}"/>'
@@ -175,7 +181,7 @@ def export_pages(
     page_count = max(lay.page_count, 1)
     pages = [
         {"defs": [], "faces": [], "tabs": [], "cut": [], "mountain": [], "valley": [],
-         "numbers": [], "tex_used": set(), "clip": []}
+         "numbers": [], "tex_used": set(), "clip": [], "groove": [], "bevel": []}
         for _ in range(page_count)
     ]
     pattern_n = [0]
@@ -299,6 +305,23 @@ def export_pages(
                 if numbered and numbers == "FACES":
                     page["numbers"].append(_number(a, b, info.number, H))
 
+    if board and board.get("thickness", 0.0) > 0.0:
+        from .board import board_marks
+
+        marks = board_marks(res, lay, board["thickness"], board.get("fold_style", "CREASE"),
+                            board.get("join_style", "TABS"), min_fold)
+        centre = f'style="stroke-dasharray:{_fmt(line_width * 6)},{_fmt(line_width * 4)}"'
+        for n, m in enumerate(marks):
+            if n >= len(pages):
+                break
+            if mirror:
+                for a, b in m["groove_back"]:
+                    pages[n]["groove"].append(line(a, b))
+                for a, b in m["groove_centre"]:
+                    pages[n]["groove"].append(
+                        f'<path d="M {pt(a)} L {pt(b)}" {centre}/>')
+                for a, b in m["bevel_back"]:
+                    pages[n]["bevel"].append(line(a, b))
     clip_polys = page_clip_polygons(res, lay, bleed, tab_texture) if page_images else None
     docs = []
     for n, layers in enumerate(pages, 1):
@@ -344,13 +367,18 @@ def export_pages(
             ("mountain", lines["mountain"]),
             ("valley", lines["valley"]),
             ("cut", lines["cut"]),
+            ("groove", f"fill:none;stroke:#1f6fbf;stroke-width:{_fmt(line_width)};"
+                       "stroke-linecap:round"),
+            ("bevel", f"fill:none;stroke:#d9711c;stroke-width:{_fmt(line_width)};"
+                      "stroke-linecap:round"),
             ("numbers", "font-family:sans-serif;fill:#333333"),
         ]
         if content == "ART_CUT":
             groups = [(name, style) for name, style in groups if name not in ("mountain", "valley")]
         if lines_only:
             keep = {"CUT": ("cut",), "CREASE": ("mountain", "valley"),
-                    "LINES": ("mountain", "valley", "cut")}[content]
+                    "LINES": ("mountain", "valley", "cut"),
+                    "BACK": ("cut", "groove", "bevel")}[content]
             groups = [(name, style) for name, style in groups if name in keep]
         for name, style in groups:
             attr = f' style="{style}"' if style else ""
@@ -359,6 +387,13 @@ def export_pages(
             )
             parts.extend(layers[name])
             parts.append("</g>")
+        if mirror:
+            parts.append(
+                f'<text x="{_fmt(lay.margin)}" y="{_fmt(H - lay.margin / 3)}" '
+                f'style="font-family:sans-serif;font-size:2.5px;fill:#888888">'
+                f'{escape(title)} · page {n} BACK (mirrored) · blue: V-grooves '
+                f'(dashed = fold line) · orange: mitre, carve the back away to this line</text>'
+            )
         if not lines_only:  # text would import into cutter software as shapes
             parts.append(
                 f'<text x="{_fmt(lay.margin)}" y="{_fmt(H - lay.margin / 3)}" '

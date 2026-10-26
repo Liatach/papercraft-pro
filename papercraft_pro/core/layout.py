@@ -511,8 +511,10 @@ def compute_layout(
     tab_angle=45.0,
     tab_flips=frozenset(),
     tab_outer=frozenset(),
+    use_tabs=True,
 ):
-    """scale_mode:
+    """use_tabs: False for board joined edge to edge (mitres): no glue tabs.
+    scale_mode:
     'FIT'    largest scale that fits on `max_pages` pages
     'HEIGHT' model's largest dimension becomes `scale_value` mm
     'RATIO'  1 model unit = `scale_value` mm
@@ -543,7 +545,7 @@ def compute_layout(
         for isl in res.islands:
             _, b = _island_extent(res.island_outline_points(isl))
             unit_sizes.append((b[2] - b[0], b[3] - b[1]))
-        args = (usable_w, usable_h, spacing, tab_height, unit_sizes)
+        args = (usable_w, usable_h, spacing, tab_height if use_tabs else 0.0, unit_sizes)
         if _approx_pages(res, lo, *args) is None:
             lay.fits = False
             lay.messages.append("Tabs or spacing are too large for this page size")
@@ -559,7 +561,8 @@ def compute_layout(
     lay.scale = scale
 
     for attempt in range(12):
-        tabs = build_tabs(res, scale, tab_height, tab_angle, tab_flips, tab_outer)
+        tabs = (build_tabs(res, scale, tab_height, tab_angle, tab_flips, tab_outer)
+                if use_tabs else [])
         tab_pts = {}
         for t in tabs:
             tab_pts.setdefault(t.island, []).extend(t.points)

@@ -156,6 +156,29 @@ colour layers, so the model's materials preview correctly on the pages.
 * **Model Size**: largest dimension in millimetres.
 * **Fixed Ratio**: millimetres of paper per Blender unit.
 
+### Materials
+
+The **Material** panel sets what you're building in. The model is the
+printed outside surface; the board's thickness sits behind it.
+
+* **Cardstock** (0.3 mm): creased folds, glue tabs, exactly as before.
+* **Cardboard** (greyboard, 1.5 mm): creased folds bend round a
+  **Fold Radius**, which takes up length, so each piece is shortened at
+  every fold to suit (0.64 mm per 90 degree fold at 1.5 mm).
+* **Corrugated 3 / 5 / 10 mm**: **V-Groove** folds. The printed liner folds
+  sharp on the line and a V is carved out of the back (10 mm wide for a 90
+  degree fold in 5 mm board). Seams are **Mitre** joins: no tabs, and at
+  outside corners the back is bevelled away (5 mm for a 90 degree corner in
+  5 mm board) so the boards meet flush. Inside corners need no carving.
+  Inward (valley) folds can't be grooved in thick board, so **Cut Valley
+  Folds** cuts them; Edit Cuts joins still win, and the panel says how many
+  inward folds are left.
+
+Every setting can be adjusted after picking a material. Export **Back
+Marks** for the back of the board: the outline, V-grooves (with the fold
+line dashed) and mitre lines, mirrored so they line up when printed on
+the reverse of the sheet or traced.
+
 ## How it works
 
 * **Cut For** (Pieces & Tabs): *Auto* (default) unfolds twice, folding
@@ -200,6 +223,7 @@ python tests/test_v08.py           # art + cut export, colour check, fold order
 python tests/test_v09.py           # paper thickness, tabs clear their walls
 python tests/test_v10.py           # PDF export, trimmed baked pages
 python tests/test_v11.py           # pale-texture check and fix
+python tests/test_v12.py           # thick materials: grooves, mitres, creases
 ```
 
 

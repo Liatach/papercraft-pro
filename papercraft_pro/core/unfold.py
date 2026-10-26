@@ -195,6 +195,7 @@ def _triangulate(points):
 def unfold(
     verts, polygons, seams=(), materials=None, priority="auto", max_faces=0,
     planar_tolerance=0.002, joins=(), valley_bias=0.5, rescue_passes=5, tiny=3,
+    cut_valleys=None,
 ):
     """Unfold with small-piece rescue.
 
@@ -213,7 +214,7 @@ def unfold(
         for p in ("long", "flat"):
             res = unfold(
                 verts, polygons, seams, materials, p, max_faces, planar_tolerance,
-                joins, valley_bias, rescue_passes, tiny,
+                joins, valley_bias, rescue_passes, tiny, cut_valleys,
             )
             res.score = len(res.islands) + 0.2 * tight_seams(res)
             res.priority = p
@@ -227,7 +228,7 @@ def unfold(
     for _ in range(max(0, rescue_passes) + 1):
         res = _unfold_once(
             verts, polygons, seams, materials, priority, max_faces,
-            planar_tolerance, user_joins, valley_bias, boost,
+            planar_tolerance, user_joins, valley_bias, boost, cut_valleys,
         )
         if best is None or len(res.islands) < len(best.islands):
             best = res
@@ -274,6 +275,7 @@ def tight_seams(res):
 def _unfold_once(
     verts, polygons, seams=(), materials=None, priority="long", max_faces=0,
     planar_tolerance=0.002, joins=(), valley_bias=0.5, boost=frozenset(),
+    cut_valleys=None,
 ):
     """Unfold a mesh.
 
@@ -294,6 +296,9 @@ def _unfold_once(
     valley_bias  0..1: how strongly cuts prefer valley (concave) edges, where
                seams hide in creases and mountain ridges stay crisp. A valley
                counts as up to twice as sharp (flat) or half as long (long).
+    cut_valleys  angle in radians: valley (concave) edges sharper than this
+               are always cut (thick board can't fold inwards neatly). A Join
+               made with Edit Cuts still wins. None = off.
     """
     res = UnfoldResult()
     res.verts = list(verts)
@@ -366,6 +371,10 @@ def _unfold_once(
             g.dot3(g.cross3(A.normal, B.normal), d), g.dot3(A.normal, B.normal)
         )
         if key in seam_keys:
+            info.forced_cut = True
+            continue
+        if (cut_valleys is not None and info.angle < -cut_valleys
+                and key not in join_keys):
             info.forced_cut = True
             continue
         length = g.len3(g.sub3(res.verts[aj], res.verts[ai]))

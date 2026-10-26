@@ -133,6 +133,46 @@ class PAPERCRAFT_PT_paper(_Child, bpy.types.Panel):
             layout.operator("papercraft.reset_layout", icon="LOOP_BACK")
 
 
+class PAPERCRAFT_PT_material(_Child, bpy.types.Panel):
+    bl_label = "Material"
+
+    def draw(self, context):
+        import math
+
+        from .core.board import groove_width, mitre_inset
+
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        props = T.target(context).papercraft
+        col = layout.column()
+        col.prop(props, "board")
+        col.prop(props, "board_thickness")
+        col.prop(props, "fold_style")
+        if props.fold_style == "CREASE":
+            col.prop(props, "fold_radius")
+        col.prop(props, "join_style")
+        col.prop(props, "cut_valleys")
+        t = props.board_thickness
+        if t >= 1.0:
+            box = layout.box()
+            box.scale_y = 0.8
+            right = math.radians(90)
+            if props.fold_style == "VGROOVE":
+                box.label(text=f"90° fold: V-groove {groove_width(t, right):.1f} mm wide",
+                          icon="MOD_BEVEL")
+            elif props.fold_radius > 0:
+                from .core.board import bend_shortening
+
+                box.label(text=f"90° fold: pieces {bend_shortening(props.fold_radius, right):.2f} "
+                               "mm shorter", icon="MOD_BEVEL")
+            if props.join_style == "MITRE":
+                box.label(text=f"90° corner: back bevelled {mitre_inset(t, right):.1f} mm",
+                          icon="MOD_BEVEL")
+            if props.fold_style == "VGROOVE" or props.join_style == "MITRE":
+                box.label(text="Export Back Marks for the back of the board", icon="INFO")
+
+
 class PAPERCRAFT_PT_pieces(_Child, bpy.types.Panel):
     bl_label = "Pieces & Tabs"
     bl_options = {"DEFAULT_CLOSED"}
@@ -147,8 +187,10 @@ class PAPERCRAFT_PT_pieces(_Child, bpy.types.Panel):
         col.prop(props, "valley_bias")
         col.prop(props, "max_faces")
         col.separator()
-        col.prop(props, "tab_height")
-        col.prop(props, "tab_angle")
+        sub = col.column()
+        sub.active = props.join_style == "TABS"
+        sub.prop(props, "tab_height")
+        sub.prop(props, "tab_angle")
 
 
 class PAPERCRAFT_PT_animate(_Child, bpy.types.Panel):
@@ -251,6 +293,7 @@ classes = (
     PAPERCRAFT_PT_main,
     PAPERCRAFT_PT_cuts,
     PAPERCRAFT_PT_paper,
+    PAPERCRAFT_PT_material,
     PAPERCRAFT_PT_pieces,
     PAPERCRAFT_PT_animate,
     PAPERCRAFT_PT_export,
