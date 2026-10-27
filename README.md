@@ -232,6 +232,15 @@ python tests/test_v12.py           # thick materials: grooves, mitres, creases
 * Joining parts of separate models with a bridge mode
 * Improving animation options
 
+## Roadmap
+
+* **Mitre folds** for thick board: inward (valley) folds that keep the
+  pieces joined. A mitred V is carved from the printed side and the pieces
+  are spaced apart by the groove width so the faces close up exactly when
+  folded. Where several inward folds meet at a corner and can't lie flat,
+  that fold is cut instead and the panel says so.
+* Drag pieces around the page.
+
 ## Licence
 Made by [Kim Lang](https://kim-lang.com/) [@Liatach](https://github.com/Liatach) with LLM assistance 2026
 GPL-3.0-or-later, see [LICENSE](LICENSE). 
