@@ -239,6 +239,12 @@ python tests/test_v12.py           # thick materials: grooves, mitres, creases
   are spaced apart by the groove width so the faces close up exactly when
   folded. Where several inward folds meet at a corner and can't lie flat,
   that fold is cut instead and the panel says so.
+* **Large sheets**: A2, A1 and A0 page sizes and common cardboard sheet
+  sizes for board builds, plus saving your own Custom sizes as named
+  presets that are kept between files.
+* **Editable sizes in the main panel**: type the model size (or the
+  page size) straight into the summary, which is read-only today, instead
+  of switching Scale mode first. The layout updates to match.
 * Drag pieces around the page.
 
 ## Licence
