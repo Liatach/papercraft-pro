@@ -1,4 +1,4 @@
-echo $OCIOecho $OCIO# Papercraft Pro
+# Papercraft Pro
 
 **Unfold Blender models into printable papercraft: glue tabs, live page
 layout, cutter-ready SVGs and an animated fold rig.**
@@ -159,7 +159,7 @@ The layout and folding meshes carry copies of all the model's UV maps and
 colour layers, so the model's materials preview correctly on the pages.
 
 ### Assembly page
-[Autocut Suzanne assembly page](docs/images/suzzane_assembly_guide.png)
+![Autocut Suzanne assembly page](docs/images/suzzane_assembly_guide.png)
 
 **Assembly Page** (on by default) adds a page after the sheets showing where
 every piece goes: the model from the front, back, top and bottom, each piece
