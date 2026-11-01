@@ -101,6 +101,7 @@ class PAPERCRAFT_PT_cuts(_Child, bpy.types.Panel):
         col.label(text="Click edge: cut / join")
         col.label(text="Click tab: other side of seam")
         col.label(text="Shift+click tab: inside / outside")
+        col.label(text="Click open edge: flap on / off")
 
 
 class PAPERCRAFT_PT_paper(_Child, bpy.types.Panel):
@@ -121,6 +122,7 @@ class PAPERCRAFT_PT_paper(_Child, bpy.types.Panel):
         col.prop(props, "landscape")
         col.prop(props, "margin")
         col.prop(props, "spacing")
+        col.prop(props, "arrange")
         col.separator()
         col.prop(props, "scale_mode")
         if props.scale_mode == "FIT":

@@ -10,7 +10,7 @@ from bpy.app.handlers import persistent
 
 from . import build
 from . import targets as T
-from .core.board import apply_bend_allowance
+from .core.board import apply_bend_allowance, clear_bend_allowance
 from .core.layout import compute_layout
 from .core.unfold import unfold
 from .mesh_io import read_object
@@ -19,11 +19,15 @@ DEBOUNCE_S = 0.35
 
 
 class CacheEntry:
-    __slots__ = ("signature", "settings", "src", "res", "lay", "poly_map", "frame")
+    __slots__ = ("signature", "settings", "src", "res", "lay", "poly_map", "frame",
+                 "cut_signature", "unfold_settings")
 
-    def __init__(self, signature, settings, src, res, lay, poly_map=None, frame=None):
+    def __init__(self, signature, settings, src, res, lay, poly_map=None, frame=None,
+                 cut_signature=None, unfold_settings=None):
         self.signature = signature
         self.settings = settings
+        self.cut_signature = cut_signature
+        self.unfold_settings = unfold_settings
         self.src = src
         self.res = res
         self.lay = lay
@@ -43,8 +47,12 @@ def cached(obj):
     return CACHE.get(_uid(obj)) if obj is not None else None
 
 
-def regenerate(scene, depsgraph, obj, force=False):
-    """Unfold `obj` with its own settings and rebuild its layout."""
+def regenerate(scene, depsgraph, obj, force=False, full=False):
+    """Unfold `obj` with its own settings and rebuild its layout.
+
+    force: rebuild even if nothing seems to have changed.
+    full: unfold again even if the cuts and unfold settings are the same
+    (otherwise page, scale and tab changes just re-pack the last unfold)."""
     if obj is None or obj.name not in scene.objects or obj.type != "MESH":
         return None
     props = obj.papercraft
@@ -67,16 +75,27 @@ def regenerate(scene, depsgraph, obj, force=False):
         entry.src.colors = src.colors
         return entry
 
-    priority = props.priority
-    if priority == "auto" and not force and entry is not None and entry.settings == settings:
-        # Live edits: keep the order Auto chose last time (half the work).
-        priority = getattr(entry.res, "priority", None) or "auto"
-    res = unfold(
-        src.verts, src.polys, src.seams, src.materials,
-        priority=priority, max_faces=props.max_faces, joins=src.joins,
-        valley_bias=props.valley_bias,
-        cut_valleys=math.radians(max(props.fold_min_angle, 1.0)) if props.cut_valleys else None,
-    )
+    unfold_settings = props.unfold_key()
+    if (
+        not full
+        and entry is not None
+        and entry.cut_signature == src.cut_signature
+        and entry.unfold_settings == unfold_settings
+    ):
+        # Same cuts: only the pages, scale or tabs changed. Re-pack the
+        # pieces already unfolded, so they keep their shapes.
+        res = entry.res
+    else:
+        priority = props.priority
+        if priority == "auto" and not force and entry is not None and entry.settings == settings:
+            # Live edits: keep the order Auto chose last time (half the work).
+            priority = getattr(entry.res, "priority", None) or "auto"
+        res = unfold(
+            src.verts, src.polys, src.seams, src.materials,
+            priority=priority, max_faces=props.max_faces, joins=src.joins,
+            valley_bias=props.valley_bias,
+            cut_valleys=math.radians(max(props.fold_min_angle, 1.0)) if props.cut_valleys else None,
+        )
     page_w, page_h = props.page_size()
     value = {"FIT": 1.0, "HEIGHT": props.model_size_mm, "RATIO": props.ratio}[props.scale_mode]
 
@@ -95,8 +114,11 @@ def regenerate(scene, depsgraph, obj, force=False):
             tab_flips=frozenset((a, b) if a < b else (b, a) for a, b in src.flips),
             tab_outer=frozenset((a, b) if a < b else (b, a) for a, b in src.outer),
             use_tabs=props.join_style == "TABS",
+            open_tabs=frozenset((a, b) if a < b else (b, a) for a, b in src.open_tabs),
+            arrange=props.arrange,
         )
 
+    clear_bend_allowance(res)  # a re-used unfold may carry an earlier one
     lay = layout()
     if props.fold_style == "CREASE" and props.fold_radius > 0.0:
         # Creased board: shorten pieces at each fold for the bend. The
@@ -130,14 +152,16 @@ def regenerate(scene, depsgraph, obj, force=False):
                 "(Cut Valley Folds; your Edit Cuts joins override it) or crease them"
             )
     props.info_message = "; ".join(messages + res.warnings + lay.messages)
-    entry = CacheEntry(src.signature, settings, src, res, lay, poly_map, frame)
+    entry = CacheEntry(src.signature, settings, src, res, lay, poly_map, frame,
+                       src.cut_signature, unfold_settings)
     CACHE[_uid(obj)] = entry
     return entry
 
 
-def get_or_build(context, obj=None, force=False):
+def get_or_build(context, obj=None, force=False, full=False):
     obj = obj if obj is not None else T.target(context)
-    return regenerate(context.scene, context.evaluated_depsgraph_get(), obj, force=force)
+    return regenerate(context.scene, context.evaluated_depsgraph_get(), obj, force=force,
+                      full=full)
 
 
 def schedule(obj, force=False):

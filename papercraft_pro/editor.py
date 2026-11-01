@@ -3,7 +3,8 @@
 
 Hover an edge on the 3D model or on the paper layout: it lights up in both
 places. Click to cut a fold or join a cut; click a tab to move it to the
-other side of its seam. Works across split viewports.
+other side of its seam; click an open edge (or Ctrl/Alt-click) to add or
+remove a flap for joining it to another part. Works across split viewports.
 """
 
 import bpy
@@ -16,13 +17,15 @@ from mathutils.geometry import intersect_point_line
 from . import build, live
 from . import targets as T
 from .core.unfold import KIND_FOLD, edge_key
-from .mesh_io import FLIP_ATTR, JOIN_ATTR, OUTER_ATTR
+from .mesh_io import FLIP_ATTR, JOIN_ATTR, OPEN_ATTR, OUTER_ATTR
 
 COLORS = {
     "cut": (1.0, 0.35, 0.1, 1.0),  # hover: will cut
     "join": (0.2, 0.85, 0.3, 1.0),  # hover: will join
     "flip": (0.25, 0.6, 1.0, 1.0),  # hover: tab will move to the other side
     "outer": (0.75, 0.3, 1.0, 1.0),  # hover (Shift): tab inside <-> outside
+    "open": (1.0, 0.8, 0.1, 1.0),  # hover: add / remove a flap on an open edge
+    "flapped": (1.0, 0.8, 0.1, 0.8),  # open edges that have a flap
     "seam": (0.9, 0.1, 0.1, 0.9),  # existing cuts on the model
 }
 
@@ -106,8 +109,12 @@ def layout_segments(entry, key, lift=0.2):
 
 def edge_action(entry, key):
     info = entry.res.edges.get(key)
-    if info is None or len(info.uses) < 2:
-        return None  # open boundary: nothing to join
+    if info is None:
+        return None
+    if len(info.uses) == 1:
+        return "open"  # open boundary: add or remove a flap
+    if len(info.uses) < 2:
+        return None
     if key in entry.src.user_seams:
         return "join"
     return "cut" if info.kind == KIND_FOLD else "join"
@@ -146,7 +153,7 @@ def pick(src_obj, entry, origin, direction):
             page = entry.lay.placements[tab.island].page
             pts = [entry.frame.to_world(page, p, 0.2) for p in entry.lay.tab_points(tab)]
             segs = [(pts[i], pts[(i + 1) % len(pts)]) for i in range(len(pts))]
-            return Pick("flip", key, ref, segs)
+            return Pick("open" if getattr(tab, "open", False) else "flip", key, ref, segs)
         if kind != "face":
             return None
         face = entry.res.faces[ref]
@@ -193,6 +200,9 @@ def apply_pick(src_obj, p):
     elif p.action == "outer":
         attr = _int_attr(mesh, OUTER_ATTR)
         attr.data[ei].value = 0 if attr.data[ei].value else 1
+    elif p.action == "open":
+        attr = _int_attr(mesh, OPEN_ATTR)
+        attr.data[ei].value = 0 if attr.data[ei].value else 1
     elif p.action == "cut":
         mesh.edges[ei].use_seam = True
         attr = mesh.attributes.get(JOIN_ATTR)
@@ -211,6 +221,18 @@ def model_cut_segments(entry):
     for key, info in entry.res.edges.items():
         if info.kind != KIND_FOLD and len(info.uses) == 2:
             out.append((Vector(verts[key[0]]), Vector(verts[key[1]])))
+    return out
+
+
+def model_flap_segments(entry):
+    """Open edges that carry a flap, on the model."""
+    verts = entry.src.verts
+    out = []
+    for t in entry.lay.tabs:
+        if getattr(t, "open", False):
+            face = entry.res.faces[t.face]
+            a, b = face.loop[t.corner], face.loop[(t.corner + 1) % len(face.loop)]
+            out.append((Vector(verts[a]), Vector(verts[b])))
     return out
 
 
@@ -245,6 +267,7 @@ def _remove_overlay():
 def _draw(op):
     try:
         cut_segments, hover = op.cut_segments, op.hover
+        flap_segments = getattr(op, "flap_segments", ())
     except Exception:  # the tool ended without cleaning up: drop the overlay
         _remove_overlay()
         return
@@ -269,6 +292,7 @@ def _draw(op):
 
     try:
         lines(cut_segments, COLORS["seam"], 2.0)
+        lines(flap_segments, COLORS["flapped"], 3.0)
         gpu.state.depth_test_set("NONE")
         if hover is not None:
             lines(hover.segments, COLORS[hover.action], 5.0)
@@ -323,8 +347,9 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
     bl_description = (
         "Click edges on the model or the paper layout to cut or join them; "
         "click a tab to move it to the other side; Shift+click a tab to glue it "
-        "on the outside (printed with the art it covers). Press again, "
-        "right-click or Esc to finish"
+        "on the outside (printed with the art it covers); click an open edge "
+        "(or Ctrl/Alt+click) to add or remove a flap for joining parts. Press "
+        "again, right-click or Esc to finish"
     )
     bl_options = {"REGISTER", "UNDO"}
 
@@ -362,6 +387,7 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
         self.entry = entry
         self.hover = None
         self.cut_segments = model_cut_segments(entry)
+        self.flap_segments = model_flap_segments(entry)
         self.changes = 0
         _ACTIVE["op"] = self
         _ACTIVE["stop"] = False
@@ -372,7 +398,8 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
         context.window_manager.modal_handler_add(self)
         context.workspace.status_text_set(
             "Edit Cuts — click edge: cut / join  ·  click tab: other side of the seam  ·  "
-            "Shift+click tab: inside / outside  ·  Right-click / Esc / Done button: finish"
+            "Shift+click tab: inside / outside  ·  click open edge (or Ctrl/Alt+click): "
+            "flap on / off  ·  Right-click / Esc / Done button: finish"
         )
         _redraw(context)
         return {"RUNNING_MODAL"}
@@ -404,6 +431,7 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
         if entry is not None:
             self.entry = entry
             self.cut_segments = model_cut_segments(entry)
+            self.flap_segments = model_flap_segments(entry)
             self.hover = None
 
     def _update_hover(self, context, event):
@@ -416,8 +444,15 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
         direction = view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
         src_obj = self.src_obj
         self.hover = pick(src_obj, self.entry, origin, direction) if src_obj else None
-        if self.hover is not None and self.hover.action == "flip" and event.shift:
-            self.hover.action = "outer"  # Shift: glue inside <-> outside
+        if self.hover is None:
+            return
+        if self.hover.tab is not None and event.shift:
+            tab = self.entry.lay.tabs[self.hover.tab]
+            if tab.partner is not None:
+                self.hover.action = "outer"  # Shift: glue inside <-> outside
+        elif (event.ctrl or event.alt) and self.hover.action != "open":
+            # Ctrl/Alt+click is for flaps: only open edges take one.
+            self.hover = None
 
     def modal(self, context, event):
         try:
@@ -444,7 +479,8 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
         if event.type in PASS_THROUGH_EVENTS:
             return {"PASS_THROUGH"}
         self._refresh_entry(context)
-        if event.type in {"MOUSEMOVE", "LEFT_SHIFT", "RIGHT_SHIFT"}:
+        if event.type in {"MOUSEMOVE", "LEFT_SHIFT", "RIGHT_SHIFT", "LEFT_CTRL",
+                          "RIGHT_CTRL", "LEFT_ALT", "RIGHT_ALT"}:
             self._update_hover(context, event)
             _redraw(context)
             return {"PASS_THROUGH"}
@@ -461,6 +497,7 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
                 if entry is not None:
                     self.entry = entry
                     self.cut_segments = model_cut_segments(entry)
+                    self.flap_segments = model_flap_segments(entry)
                 self.changes += 1
                 bpy.ops.ed.undo_push(message="Papercraft: edit cut")
                 self._update_hover(context, event)

@@ -24,7 +24,7 @@ import math
 from xml.sax.saxutils import escape
 
 from . import geom as g
-from .unfold import KIND_CUT, KIND_FOLD, edge_key
+from .unfold import KIND_FOLD, edge_key
 
 LINE_STYLES = ("DEFAULT", "CUSTOM", "NONE")
 NUMBER_MODES = ("FACES", "CLEAN", "OFF")
@@ -96,14 +96,17 @@ def glue_footprints(res, lay):
         own_isl, p_isl = island_of.get(tab.face), island_of.get(partner.index)
         if own_isl is None or p_isl is None:
             continue
-        n = len(face.loop)
-        va, vb = face.loop[tab.corner], face.loop[(tab.corner + 1) % n]
-        if va not in partner.loop or vb not in partner.loop:
+        n, m = len(face.loop), len(partner.loop)
+        ko = tab.partner[1]
+        if ko >= m:
             continue
         own = lay.face_points(res, own_isl, tab.face)
         ppts = lay.face_points(res, p_isl, partner.index)
         a, b = own[tab.corner], own[(tab.corner + 1) % n]
-        pa, pb = ppts[partner.loop.index(va)], ppts[partner.loop.index(vb)]
+        # The partner runs the shared edge the other way: its corner ko is
+        # this edge's end b (also for flaps joining separately made parts,
+        # whose vertices are different ones in the same place).
+        pa, pb = ppts[(ko + 1) % m], ppts[ko]
         turn = (math.atan2(pb[1] - pa[1], pb[0] - pa[0])
                 - math.atan2(b[1] - a[1], b[0] - a[0]))
         c, s_ = math.cos(turn), math.sin(turn)
@@ -326,7 +329,7 @@ def export_pages(
                         page["mountain" if info.angle > 0 else "valley"].append(line(a, b))
                     continue
                 tab = tab_on.get((f, k))
-                numbered = numbers != "OFF" and info.kind == KIND_CUT and info.number
+                numbered = numbers != "OFF" and info.kind != KIND_FOLD and info.number
                 if tab is not None:
                     tp = lay.tab_points(tab)
                     poly = f'<polygon points="{" ".join(pt(p) for p in tp)}"/>'

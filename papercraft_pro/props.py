@@ -36,6 +36,16 @@ def _changed(self, context):
         live.schedule(self.id_data)
 
 
+def _layout_changed(self, context):
+    """Page and layout settings: re-pack the pieces already unfolded (no new
+    unfold), even with Live Update off, once the model has a layout."""
+    from . import live
+    from . import targets as T
+
+    if self.role == "SOURCE" and (self.live or T.output(self.id_data, T.ROLE_LAYOUT) is not None):
+        live.schedule(self.id_data)
+
+
 def _live_toggled(self, context):
     from . import live
 
@@ -120,17 +130,30 @@ class PapercraftSettings(bpy.types.PropertyGroup):
     )
 
     # Paper --------------------------------------------------------------
-    paper: EnumProperty(name="Paper", items=PAPER_ITEMS, default="A4", update=_changed)
-    landscape: BoolProperty(name="Landscape", default=False, update=_changed)
-    custom_w: FloatProperty(name="Width", default=210.0, min=20.0, unit="NONE", update=_changed)
-    custom_h: FloatProperty(name="Height", default=297.0, min=20.0, update=_changed)
+    paper: EnumProperty(name="Paper", items=PAPER_ITEMS, default="A4", update=_layout_changed)
+    landscape: BoolProperty(name="Landscape", default=False, update=_layout_changed)
+    custom_w: FloatProperty(name="Width", default=210.0, min=20.0, unit="NONE", update=_layout_changed)
+    custom_h: FloatProperty(name="Height", default=297.0, min=20.0, update=_layout_changed)
     margin: FloatProperty(
-        name="Margin", default=10.0, min=0.0, max=60.0, update=_changed,
+        name="Margin", default=10.0, min=0.0, max=60.0, update=_layout_changed,
         description="Unprintable border in mm",
     )
     spacing: FloatProperty(
-        name="Spacing", default=3.0, min=0.0, max=30.0, update=_changed,
+        name="Spacing", default=3.0, min=0.0, max=30.0, update=_layout_changed,
         description="Gap between pieces in mm",
+    )
+    arrange: EnumProperty(
+        name="Arrange",
+        items=[
+            ("COMPACT", "Fewest Pages", "Pack the pieces tightly, biggest first, onto as few "
+             "pages as possible"),
+            ("EVEN", "Spread Evenly", "Same number of pages, but the pieces shared out so each "
+             "page holds a similar amount, centred, with more room to cut round them"),
+            ("NEIGHBOURS", "Neighbours Together", "Pieces that glue to each other sit side by "
+             "side, in assembly order across the pages (piece letters follow it too)"),
+        ],
+        default="COMPACT",
+        update=_layout_changed,
     )
 
     # Scale --------------------------------------------------------------
@@ -142,15 +165,15 @@ class PapercraftSettings(bpy.types.PropertyGroup):
             ("RATIO", "Fixed Ratio", "Millimetres of paper per Blender unit"),
         ],
         default="FIT",
-        update=_changed,
+        update=_layout_changed,
     )
-    pages: IntProperty(name="Pages", default=1, min=1, max=200, update=_changed)
-    model_size_mm: FloatProperty(name="Size (mm)", default=150.0, min=5.0, update=_changed)
-    ratio: FloatProperty(name="mm per Unit", default=100.0, min=0.001, update=_changed)
+    pages: IntProperty(name="Pages", default=1, min=1, max=200, update=_layout_changed)
+    model_size_mm: FloatProperty(name="Size (mm)", default=150.0, min=5.0, update=_layout_changed)
+    ratio: FloatProperty(name="mm per Unit", default=100.0, min=0.001, update=_layout_changed)
 
     # Tabs ---------------------------------------------------------------
-    tab_height: FloatProperty(name="Tab Height", default=5.0, min=0.5, max=30.0, update=_changed)
-    tab_angle: FloatProperty(name="Tab Angle", default=45.0, min=15.0, max=89.0, update=_changed)
+    tab_height: FloatProperty(name="Tab Height", default=5.0, min=0.5, max=30.0, update=_layout_changed)
+    tab_angle: FloatProperty(name="Tab Angle", default=45.0, min=15.0, max=89.0, update=_layout_changed)
 
     # Material -----------------------------------------------------------
     board: EnumProperty(
@@ -358,15 +381,26 @@ class PapercraftSettings(bpy.types.PropertyGroup):
             w, h = PAGE_SIZES_MM[self.paper]
         return (h, w) if self.landscape else (w, h)
 
-    def settings_key(self):
+    def unfold_key(self):
+        """Settings that change where the cuts go (need a new unfold)."""
         return (
-            self.priority, self.valley_bias, self.max_faces, self.page_size(), self.margin, self.spacing,
+            self.priority, self.valley_bias, self.max_faces,
+            self.cut_seams, self.cut_materials, self.cut_colors, self.cut_sharp,
+            self.cut_valleys, round(self.fold_min_angle, 3) if self.cut_valleys else None,
+        )
+
+    def layout_key(self):
+        """Settings that only change how the pieces sit on the pages."""
+        return (
+            self.page_size(), self.margin, self.spacing, self.arrange,
             self.scale_mode, self.pages, self.model_size_mm, self.ratio,
             self.tab_height, self.tab_angle,
-            self.cut_seams, self.cut_materials, self.cut_colors, self.cut_sharp,
             round(self.board_thickness, 4), self.fold_style, round(self.fold_radius, 4),
-            self.join_style, self.cut_valleys,
+            self.join_style,
         )
+
+    def settings_key(self):
+        return self.unfold_key() + self.layout_key()
 
     def cut_rules(self):
         return {

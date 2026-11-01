@@ -549,9 +549,8 @@ def build_rig(context, src_obj, entry, include_tabs=True):
                 eb.head = world_pts[tab.face][k]
                 eb.tail = world_pts[tab.face][(k + 1) % len(face.loop)]
                 eb.parent = ebones[bone_of_face[tab.face]]
-                info = res.edges[_key(face, k)]
                 tab_bones.append((name, tab))
-                hinges.append((name, info.angle))
+                hinges.append((name, tab.angle))
                 # Sheet normal (printed side) in this bone's rest axes, for
                 # sliding the tab one paper thickness off the wall it glues to.
                 n = _newell(world_pts[tab.face])
@@ -707,11 +706,6 @@ def build_rig(context, src_obj, entry, include_tabs=True):
     arm.select_set(False)
     restore_mode(context, saved_mode)
     return arm, folding
-
-
-def _key(face, k):
-    a, b = face.loop[k], face.loop[(k + 1) % len(face.loop)]
-    return (a, b) if a < b else (b, a)
 
 
 def keyframe_animation(arm, start, fold_end, assemble_end):

@@ -30,7 +30,7 @@ class PAPERCRAFT_OT_unfold(_NeedsModel, bpy.types.Operator):
     def execute(self, context):
         obj = _target(context)
         obj.papercraft.role = T.ROLE_SOURCE
-        entry = live.get_or_build(context, obj, force=True)
+        entry = live.get_or_build(context, obj, force=True, full=True)
         if entry is None:
             self.report({"WARNING"}, obj.papercraft.info_message or "Nothing to unfold")
             return {"CANCELLED"}

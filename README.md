@@ -17,6 +17,7 @@ builds a hinge rig that animates the sheet folding up into the model.
   tucked into valley creases, no overlapping pieces.
 * **Edit Cuts**: hover and click edges on the model *or* the paper to cut and
   join, Pepakura style. Click tabs to swap sides; Shift+click for outside tabs.
+  Click an open edge to add a flap, for joining big parts made separately.
 * **Cut rules**: seams, material boundaries, painted colour regions, sharp edges.
 * **Live layout** on A4, Letter and other page sizes, updating as you edit.
 * **Prints what you see**: Cycles bakes any material (image textures, Paint
@@ -64,6 +65,13 @@ like; selecting a layout or rig jumps to its model.
    split viewports. Finish with Right-click, Esc or the **Done Editing**
    button; clicks on the sidebar and other editors work normally meanwhile.
    Going into Edit Mode or hitting an error also ends the tool cleanly.
+   **Open edges** (the rim of a part with nothing glued to it) take a
+   **flap**: click one (Ctrl+click or Alt+click work too) to add or remove
+   it; flapped edges show yellow on the model. If another open edge in the
+   same model sits exactly on it, as where two halves of a big model were
+   made separately, the flap is fitted to that face and both edges get the
+   same glue number, with a glue guide and a fold in the rig like any tab.
+   Shift+click such a flap to glue it on the outside.
 5. **Fold Animation → Build Fold Rig**: a copy of the sheet appears in front
    of the layout, printed side down like paper on a table. **Fold** folds the
    pieces up off the table, each resting on its root piece; **Assemble**
@@ -209,6 +217,20 @@ Principled BSDF's Base Color for shaded renders.
 * **Model Size**: largest dimension in millimetres.
 * **Fixed Ratio**: millimetres of paper per Blender unit.
 
+### Arrange
+
+How the pieces are spread over the pages (Paper & Scale → **Arrange**):
+
+* **Fewest Pages**: packed tightly, biggest first (the default).
+* **Spread Evenly**: the same number of pages, with the pieces shared out
+  so each page holds a similar amount, centred, with room to cut round them.
+* **Neighbours Together**: pieces that glue to each other sit side by side,
+  in assembly order across the pages, so the piece letters follow it too.
+
+Page, scale, tab and arrangement changes re-pack the pieces already
+unfolded (they keep their shapes), even with Live Layout off. Changing
+the cuts or **Cut For** unfolds again; **Unfold** always does.
+
 ### Materials
 
 The **Material** panel sets what you're building in. The model is the
@@ -279,6 +301,7 @@ python tests/test_v11.py           # pale-texture check and fix
 python tests/test_v12.py           # thick materials: grooves, mitres, creases
 python tests/test_v13.py           # scene setup, render looks, glue guides
 python tests/test_v14.py           # assembly page, piece letters, true colours
+python tests/test_v15.py           # flaps on open edges, page arrangements
 ```
 
 
