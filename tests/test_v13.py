@@ -94,6 +94,34 @@ assert editor.apply_pick(cube, editor.Pick("outer", key))
 entry = live.regenerate(scene, ctx.evaluated_depsgraph_get(), cube, force=True)
 props.export_content = "PRINT"
 assert sum(map(glue_count, svg_documents(ctx, cube, entry))) == 1
+# The outside tab's guide sits inside the tab's footprint with a margin, so
+# the tab (and its art) hides it completely once glued.
+outer_tab = next(t for t in entry.lay.tabs if t.outer)
+k = entry.lay.tabs.index(outer_tab)
+small = [p for p in glue_footprints(entry.res, entry.lay)][k][1][1]
+outer_tab.outer = False
+full = [p for p in glue_footprints(entry.res, entry.lay)][k][1][1]
+outer_tab.outer = True
+
+
+def edge_dist(poly, q):
+    best = 1e9
+    for i in range(len(poly)):
+        a, b = poly[i], poly[(i + 1) % len(poly)]
+        d = G.sub2(b, a)
+        ln = G.len2(d)
+        t = max(0.0, min(1.0, G.dot2(G.sub2(q, a), d) / (ln * ln)))
+        best = min(best, G.len2(G.sub2(q, G.add2(a, G.mul2(d, t)))))
+    return best
+
+
+depth = max(edge_dist([full[0], full[-1]], q) for q in full)
+want = min(1.0, 0.2 * depth)
+assert all(inside(full, q) for q in small)
+margin = min(edge_dist(full, q) for q in small)
+print(f"outside guide: {margin:.2f} mm inside the tab on every side (tab {depth:.1f} mm deep)")
+assert margin > want - 1e-6
+assert abs(G.polygon_area(small)) < abs(G.polygon_area(full))
 props.export_content = "BACK"
 assert sum(map(glue_count, svg_documents(ctx, cube, entry))) == ntabs - 1
 path = write_pdf(ctx, cube, entry, os.path.join(OUT, "v13_glue.pdf"))

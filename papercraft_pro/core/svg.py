@@ -77,11 +77,15 @@ def _line_styles(style, width, color=(0.0, 0.0, 0.0), opacity=1.0, dashed=True):
     return styles
 
 
+OUTER_GUIDE_INSET = 1.0  # mm, at most; never more than a fifth of the tab's depth
+
+
 def glue_footprints(res, lay):
     """Where each tab lands when glued: [(page, (outer, points)), ...] in
     page mm. The tab's outline is turned about its hinge edge onto the same
     edge of the face it glues to (a rotation: both faces are seen from the
-    printed side), so it lands on that face's side of the edge."""
+    printed side), so it lands on that face's side of the edge. Outside
+    tabs' guides are inset (see OUTER_GUIDE_INSET) so the tab hides them."""
     island_of = {f: isl for isl in res.islands for f in isl.faces}
     out = []
     for tab in lay.tabs:
@@ -107,6 +111,15 @@ def glue_footprints(res, lay):
         for x, y in lay.tab_points(tab):
             dx, dy = x - a[0], y - a[1]
             pts.append((pa[0] + c * dx - s_ * dy, pa[1] + s_ * dx + c * dy))
+        if tab.outer:
+            # An outside tab lies on top of this guide: keep the guide well
+            # inside it, so small slips in cutting and gluing still hide it.
+            ln = math.hypot(pb[0] - pa[0], pb[1] - pa[1]) or 1.0
+            depth = max(abs((pb[0] - pa[0]) * (q[1] - pa[1]) - (pb[1] - pa[1]) * (q[0] - pa[0])) / ln
+                        for q in pts)
+            pts = g.shrink_convex(pts, min(OUTER_GUIDE_INSET, 0.2 * depth))
+            if not pts:
+                continue
         out.append((lay.placements[p_isl.index].page, (tab.outer, pts)))
     return out
 

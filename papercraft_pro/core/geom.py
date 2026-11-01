@@ -329,6 +329,41 @@ def grow_convex(poly, amount, miter=3.0):
     return out
 
 
+def shrink_convex(poly, amount):
+    """The convex polygon with every edge moved inwards by `amount`: the
+    original clipped by each edge's half-plane, pushed in. Exact for any
+    convex shape; [] if nothing is left."""
+    n = len(poly)
+    if n < 3 or amount <= 0.0:
+        return list(poly)
+    area = sum(poly[k][0] * poly[(k + 1) % n][1] - poly[(k + 1) % n][0] * poly[k][1]
+               for k in range(n))
+    sign = 1.0 if area > 0 else -1.0
+    out = list(poly)
+    for k in range(n):
+        a, b = poly[k], poly[(k + 1) % n]
+        d = sub2(b, a)
+        ln = len2(d)
+        if ln < EPS or not out:
+            continue
+        inward = (-d[1] / ln * sign, d[0] / ln * sign)
+
+        def depth(q):
+            return dot2(sub2(q, a), inward) - amount
+
+        clipped = []
+        for j in range(len(out)):
+            p, q = out[j], out[(j + 1) % len(out)]
+            dp, dq = depth(p), depth(q)
+            if dp >= 0:
+                clipped.append(p)
+            if (dp >= 0) != (dq >= 0):
+                t = dp / (dp - dq)
+                clipped.append(add2(p, mul2(sub2(q, p), t)))
+        out = clipped
+    return out if len(out) >= 3 else []
+
+
 def grow_triangle(tri, amount):
     """Push each corner of a triangle outwards so its edges move out by
     roughly `amount` (used for print bleed)."""

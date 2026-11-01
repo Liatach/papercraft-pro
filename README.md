@@ -155,8 +155,9 @@ colour layers, so the model's materials preview correctly on the pages.
 **Glue Guides** (on by default) outline where each tab lands on the face it
 glues to. Inside tabs glue to the back of that face, so their guides print
 on the **Back Marks** pages, mirrored to line up when printed on the reverse
-of the sheet. Outside tabs glue on top, so their guides print on the front,
-hidden by the tab once it's glued. **Inside Guides on Front** puts every
+of the sheet. Outside tabs glue on top, so their guides print on the front, kept
+1 mm inside the tab on every side (less on very small tabs) so the tab and
+its art hide them completely once glued. **Inside Guides on Front** puts every
 guide on the front: handy for plain models you paint after building (on
 printed art they would show on the finished model).
 
