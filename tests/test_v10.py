@@ -62,7 +62,7 @@ for name, content, mode in (("art", "ART_CUT", "BAKE"), ("print", "PRINT", "IMAG
     path = write_pdf(ctx, cube, entry, os.path.join(OUT, f"v10_{name}.pdf"))
     data, n = pdf_pages(path)
     print(f"{os.path.basename(path)}: {n} page(s), {len(data)} bytes")
-    assert n == pages
+    assert n == pages + (1 if content in ("PRINT", "ART_CUT") else 0), (n, pages)  # + assembly
     if content == "CUT":
         assert b"/Im" not in data, "cut file carries no art"
     renders[name] = path

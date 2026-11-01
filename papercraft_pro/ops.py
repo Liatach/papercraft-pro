@@ -345,6 +345,9 @@ def svg_documents(context, obj, entry, reporter=None):
                    fold_style=props.fold_style, join_style=props.join_style),
         glue_guides=props.glue_guides,
         glue_front=props.glue_guides_front,
+        piece_letters=props.piece_letters and (
+            props.number_mode != "OFF" or props.export_content == "BACK"),
+        assembly=props.assembly_page,
     )
 
 
@@ -357,8 +360,14 @@ def write_pages(context, obj, entry, filepath, reporter=None):
     if suffix and not base.endswith(suffix):
         base += suffix
         filepath = base + ext
+    from .core.assembly import MARK
+
+    sheets = [d for d in docs if MARK not in d[:200]]
     for n, doc in enumerate(docs, 1):
-        path = filepath if len(docs) == 1 else f"{base}_page{n:02d}{ext}"
+        if MARK in doc[:200]:
+            path = f"{base}_assembly{ext}"
+        else:
+            path = filepath if len(sheets) == 1 else f"{base}_page{n:02d}{ext}"
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(doc)
     return docs

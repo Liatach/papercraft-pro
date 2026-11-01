@@ -150,6 +150,17 @@ A *Join* made with Edit Cuts overrides a material/colour/sharp cut.
 The layout and folding meshes carry copies of all the model's UV maps and
 colour layers, so the model's materials preview correctly on the pages.
 
+### Assembly page
+
+**Assembly Page** (on by default) adds a page after the sheets showing where
+every piece goes: the model from the front, back, top and bottom, each piece
+filled in its own colour and lettered where it shows, seams drawn darker
+than folds, and a key giving the page each piece is printed on. With
+**Piece Letters**, the same letters are printed on the pieces: inside each
+piece with Numbers *On Faces* (and on Back Marks pages), on the scrap below
+it with *Tabs & Scrap*. In the PDF it's the last page; as SVG it's saved
+beside the sheets with an `_assembly` suffix.
+
 ### Glue guides
 
 **Glue Guides** (on by default) outline where each tab lands on the face it
@@ -174,6 +185,13 @@ fill the frame. **Render Look** sets how finished renders are lit:
 * *Dawn*: Blender's sunrise light, warm and cool, with the sun's shadows.
 * *Studio*: a photo studio's light with real reflections.
 * *Your Own*: your own world and lights (put back as they were).
+
+**True Colours While Painting** (on by default): in Texture Paint the
+scene switches to the Standard view transform and paint fed straight from
+a Principled BSDF shows unlit, so the eyedropper picks the colour you
+painted, not a shaded or AgX-dulled one. Everything is put back when you
+leave Texture Paint; Paint System layer stacks keep their own nodes and
+just get the Standard view.
 
 Each look shows the camera a soft grey background, so white paper doesn't
 vanish against white. **Paper Texture** adds a fine paper grain, sized to
@@ -259,6 +277,7 @@ python tests/test_v10.py           # PDF export, trimmed baked pages
 python tests/test_v11.py           # pale-texture check and fix
 python tests/test_v12.py           # thick materials: grooves, mitres, creases
 python tests/test_v13.py           # scene setup, render looks, glue guides
+python tests/test_v14.py           # assembly page, piece letters, true colours
 ```
 
 

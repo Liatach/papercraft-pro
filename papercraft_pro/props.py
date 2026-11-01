@@ -267,6 +267,22 @@ class PapercraftSettings(bpy.types.PropertyGroup):
         "Glue tabs then sit one thickness behind the wall they glue to (in front, for "
         "outside tabs) instead of showing through it. 0 = flat sheet (Rebuild Rig to apply)",
     )
+    true_colours: BoolProperty(
+        name="True Colours While Painting", default=True,
+        description="In Texture Paint, show the paint unlit with the Standard view "
+        "transform, so the eyedropper picks the colour you painted (put back when you leave "
+        "Texture Paint). Layer stacks such as Paint System keep their own nodes",
+    )
+    assembly_page: BoolProperty(
+        name="Assembly Page", default=True,
+        description="Add a page showing where every piece goes: the model from four sides, "
+        "each piece in its own colour and lettered, with the page each one is on",
+    )
+    piece_letters: BoolProperty(
+        name="Piece Letters", default=True,
+        description="Letter each piece (A, B, C ...) to match the assembly page: inside the "
+        "piece with Numbers On Faces, on the scrap below it with Tabs & Scrap",
+    )
     glue_guides: BoolProperty(
         name="Glue Guides", default=True,
         description="Outline where each tab lands on the face it glues to. Inside tabs "

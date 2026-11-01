@@ -166,6 +166,8 @@ def export_pages(
     board=None,
     glue_guides=True,
     glue_front=False,
+    piece_letters=True,
+    assembly=False,
 ):
     """Return a list of SVG documents (strings), one per page.
 
@@ -189,6 +191,11 @@ def export_pages(
               (or on the front too with glue_front, for plain models painted
               after building); outside tabs glue on top, so theirs print on
               the front, hidden by the tab once glued.
+    piece_letters  letter each piece (A, B, C ...) to match the assembly page:
+              inside its largest face with numbers On Faces (and always on
+              BACK pages), on the scrap below it with Tabs & Scrap, none
+              with numbers Off.
+    assembly  add the assembly page (see core.assembly) after the sheets.
     board     thick materials: dict(thickness=mm, fold_style, join_style).
               Content BACK draws the back of each sheet mirrored (outlines,
               V-grooves with their fold line, mitre bevels).
@@ -235,7 +242,7 @@ def export_pages(
     page_count = max(lay.page_count, 1)
     pages = [
         {"defs": [], "faces": [], "tabs": [], "cut": [], "mountain": [], "valley": [],
-         "numbers": [], "tex_used": set(), "clip": [], "groove": [], "bevel": [], "glue": []}
+         "numbers": [], "tex_used": set(), "clip": [], "groove": [], "bevel": [], "glue": [], "pieces": []}
         for _ in range(page_count)
     ]
     pattern_n = [0]
@@ -383,6 +390,32 @@ def export_pages(
             if show and page_n < len(pages):
                 pages[page_n]["glue"].append(
                     f'<polygon points="{" ".join(pt(q) for q in pts_)}"/>')
+    letters = None
+    if piece_letters and content in ("PRINT", "ART_CUT", "BACK"):
+        from .assembly import piece_labels
+
+        letters = piece_labels(res, lay)
+        where = "FACE" if (mirror or numbers == "FACES") else (
+            "SCRAP" if numbers == "CLEAN" else None)
+        for isl in res.islands if where else ():
+            label = letters.get(isl.index)
+            if label is None:
+                continue
+            page = lay.placements[isl.index].page
+            if where == "FACE":
+                c = g.polygon_centroid(lay.face_points(res, isl, isl.root))
+                y = c[1] - 1.4
+            else:
+                pts = [q for f in isl.faces for q in lay.face_points(res, isl, f)]
+                low = min(pts, key=lambda q: q[1])
+                c, y = low, low[1] - 4.5
+                if y < lay.margin * 0.4:  # no room below: above the piece
+                    high = max(pts, key=lambda q: q[1])
+                    c, y = high, high[1] + 1.5
+            if page < len(pages):
+                pages[page]["pieces"].append(
+                    f'<text x="{_fmt(W - c[0] if mirror else c[0])}" y="{_fmt(H - y)}" '
+                    f'text-anchor="middle">{escape(label)}</text>')
     clip_polys = page_clip_polygons(res, lay, bleed, tab_texture) if page_images else None
     docs = []
     for n, layers in enumerate(pages, 1):
@@ -435,13 +468,14 @@ def export_pages(
             ("bevel", f"fill:none;stroke:#d9711c;stroke-width:{_fmt(line_width)};"
                       "stroke-linecap:round"),
             ("numbers", "font-family:sans-serif;fill:#333333"),
+            ("pieces", "font-family:sans-serif;font-size:4px;fill:#555555"),
         ]
         if content == "ART_CUT":
             groups = [(name, style) for name, style in groups if name not in ("mountain", "valley")]
         if lines_only:
             keep = {"CUT": ("cut",), "CREASE": ("mountain", "valley"),
                     "LINES": ("mountain", "valley", "cut"),
-                    "BACK": ("glue", "cut", "groove", "bevel")}[content]
+                    "BACK": ("glue", "cut", "groove", "bevel", "pieces")}[content]
             groups = [(name, style) for name, style in groups if name in keep]
         for name, style in groups:
             attr = f' style="{style}"' if style else ""
@@ -464,6 +498,10 @@ def export_pages(
             )
         parts.append("</svg>")
         docs.append("\n".join(parts))
+    if assembly and content in ("PRINT", "ART_CUT") and res.islands:
+        from .assembly import assembly_page
+
+        docs.append(assembly_page(res, lay, title, letters, line_width))
     return docs
 
 

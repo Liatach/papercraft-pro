@@ -171,7 +171,8 @@ for isl in e2.res.islands:
                 seen.add(key)
                 if info.angle <= -min_fold:
                     valley_folds += 1
-drawn = sum(d.split('<g id="valley"')[1].split("</g>")[0].count("<path") for d in doc)
+drawn = sum(d.split('<g id="valley"')[1].split("</g>")[0].count("<path") for d in doc
+            if '<g id="valley"' in d)  # (the assembly page has no fold layers)
 print(f"valley lines drawn {drawn} = valley folds {valley_folds} + valley tab hinges {valley_tabs}")
 assert drawn == valley_folds + valley_tabs and valley_tabs > 0
 

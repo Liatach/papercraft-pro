@@ -268,6 +268,10 @@ def draw_export(layout, props):
         col.prop(props, "tab_fill")
     col.separator()
     col.prop(props, "number_mode")
+    sub = col.column()
+    sub.active = props.number_mode != "OFF"
+    sub.prop(props, "piece_letters")
+    col.prop(props, "assembly_page")
     col.prop(props, "glue_guides")
     sub = col.column()
     sub.active = props.glue_guides
@@ -302,6 +306,7 @@ class PAPERCRAFT_PT_scene(_Child, bpy.types.Panel):
         row.operator_menu_enum("papercraft.render_look", "look",
                                text=f"Render Look: {names.get(look, 'not set')}", icon="LIGHT_SUN")
         row.operator("papercraft.frame_camera", text="", icon="VIEW_CAMERA")
+        layout.prop(obj.papercraft, "true_colours")
         col = layout.column(align=True)
         col.label(text="Show in Renders")
         row = col.row(align=True)
