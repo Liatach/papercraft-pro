@@ -284,6 +284,16 @@ def write_pdf(context, obj, entry, filepath, reporter=None):
 SUFFIX = {"PRINT": "", "ART_CUT": "_art", "BACK": "_back", "CUT": "_cut", "CREASE": "_crease", "LINES": "_lines"}
 
 
+# Notices shown once per Blender session (cleared when Blender restarts).
+_NOTICES = {}
+TEXTURE_FIX_NOTICE = (
+    "Colour incompatibility found and fixed: this Blender's Cycles doesn't decode sRGB "
+    "image textures, so its bakes and renders come out paler than the viewport. "
+    "Papercraft Pro corrected it for this export, so your print colours are right "
+    "(Cycles renders outside the add-on are still affected). Shown once per session"
+)
+
+
 def svg_documents(context, obj, entry, reporter=None):
     props = obj.papercraft
     mode = props.texture_mode
@@ -315,12 +325,10 @@ def svg_documents(context, obj, entry, reporter=None):
             return None
         finally:
             wm.progress_end()
-        if getattr(bake_pages, "textures_fixed", False) and reporter is not None:
-            reporter.report(
-                {"WARNING"},
-                "This Blender's Cycles isn't decoding sRGB image textures (Cycles renders "
-                "look paler than the viewport); the add-on decoded them for this print",
-            )
+        if (getattr(bake_pages, "textures_fixed", False) and reporter is not None
+                and not _NOTICES.get("textures_fixed")):
+            _NOTICES["textures_fixed"] = True  # once per Blender session
+            reporter.report({"INFO"}, TEXTURE_FIX_NOTICE)
     return export_pages(
         entry.res,
         entry.lay,

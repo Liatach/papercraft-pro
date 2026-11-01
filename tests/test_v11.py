@@ -93,3 +93,32 @@ print("originals untouched, temporary copies removed")
 
 addon.unregister()
 print("V11 OK")
+
+# The notice: once per session, saying it was found and fixed.
+import papercraft_pro as addon2  # noqa: E402
+from papercraft_pro import ops as O  # noqa: E402
+
+addon2.register()
+
+
+class Reporter:
+    def __init__(self):
+        self.msgs = []
+
+    def report(self, kind, msg):
+        self.msgs.append((kind, msg))
+
+
+O._NOTICES.clear()
+bake.textures_decode = lambda context, check_colorspace="sRGB": False
+try:
+    r = Reporter()
+    svg_documents(ctx, cube, entry, r)
+    svg_documents(ctx, cube, entry, r)
+finally:
+    bake.textures_decode = real
+notices = [m for k, m in r.msgs if "Colour incompatibility found and fixed" in m]
+assert len(notices) == 1 and r.msgs[0][0] == {"INFO"}, r.msgs
+print("notice: shown once per session:", notices[0][:60], "...")
+addon2.unregister()
+print("V11 NOTICE OK")
