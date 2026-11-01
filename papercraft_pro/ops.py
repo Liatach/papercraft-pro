@@ -343,6 +343,8 @@ def svg_documents(context, obj, entry, reporter=None):
         tab_fill=props.tab_fill,
         board=dict(thickness=props.board_thickness if props.board_thickness >= 1.0 else 0.0,
                    fold_style=props.fold_style, join_style=props.join_style),
+        glue_guides=props.glue_guides,
+        glue_front=props.glue_guides_front,
     )
 
 

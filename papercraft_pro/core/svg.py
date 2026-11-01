@@ -77,6 +77,40 @@ def _line_styles(style, width, color=(0.0, 0.0, 0.0), opacity=1.0, dashed=True):
     return styles
 
 
+def glue_footprints(res, lay):
+    """Where each tab lands when glued: [(page, (outer, points)), ...] in
+    page mm. The tab's outline is turned about its hinge edge onto the same
+    edge of the face it glues to (a rotation: both faces are seen from the
+    printed side), so it lands on that face's side of the edge."""
+    island_of = {f: isl for isl in res.islands for f in isl.faces}
+    out = []
+    for tab in lay.tabs:
+        if tab.partner is None:
+            continue
+        face = res.faces[tab.face]
+        partner = res.faces[tab.partner[0]]
+        own_isl, p_isl = island_of.get(tab.face), island_of.get(partner.index)
+        if own_isl is None or p_isl is None:
+            continue
+        n = len(face.loop)
+        va, vb = face.loop[tab.corner], face.loop[(tab.corner + 1) % n]
+        if va not in partner.loop or vb not in partner.loop:
+            continue
+        own = lay.face_points(res, own_isl, tab.face)
+        ppts = lay.face_points(res, p_isl, partner.index)
+        a, b = own[tab.corner], own[(tab.corner + 1) % n]
+        pa, pb = ppts[partner.loop.index(va)], ppts[partner.loop.index(vb)]
+        turn = (math.atan2(pb[1] - pa[1], pb[0] - pa[0])
+                - math.atan2(b[1] - a[1], b[0] - a[0]))
+        c, s_ = math.cos(turn), math.sin(turn)
+        pts = []
+        for x, y in lay.tab_points(tab):
+            dx, dy = x - a[0], y - a[1]
+            pts.append((pa[0] + c * dx - s_ * dy, pa[1] + s_ * dx + c * dy))
+        out.append((lay.placements[p_isl.index].page, (tab.outer, pts)))
+    return out
+
+
 def page_clip_polygons(res, lay, bleed=0.2, tab_texture=False):
     """Per page, the polygons (page mm, y up) a baked page image shows
     through: every face grown by the bleed, plus tabs that carry art (all
@@ -117,6 +151,8 @@ def export_pages(
     dashed=True,
     tab_fill=True,
     board=None,
+    glue_guides=True,
+    glue_front=False,
 ):
     """Return a list of SVG documents (strings), one per page.
 
@@ -135,6 +171,11 @@ def export_pages(
     tab_texture  continue each face's art (baked page, image texture or
               flat colour) onto its tabs
     tab_fill  fill plain tabs grey (False: leave them paper white)
+    glue_guides  outline where each tab lands on the face it glues to. Inside
+              tabs glue to the face's back, so their guides go on BACK pages
+              (or on the front too with glue_front, for plain models painted
+              after building); outside tabs glue on top, so theirs print on
+              the front, hidden by the tab once glued.
     board     thick materials: dict(thickness=mm, fold_style, join_style).
               Content BACK draws the back of each sheet mirrored (outlines,
               V-grooves with their fold line, mitre bevels).
@@ -181,7 +222,7 @@ def export_pages(
     page_count = max(lay.page_count, 1)
     pages = [
         {"defs": [], "faces": [], "tabs": [], "cut": [], "mountain": [], "valley": [],
-         "numbers": [], "tex_used": set(), "clip": [], "groove": [], "bevel": []}
+         "numbers": [], "tex_used": set(), "clip": [], "groove": [], "bevel": [], "glue": []}
         for _ in range(page_count)
     ]
     pattern_n = [0]
@@ -322,6 +363,13 @@ def export_pages(
                         f'<path d="M {pt(a)} L {pt(b)}" {centre}/>')
                 for a, b in m["bevel_back"]:
                     pages[n]["bevel"].append(line(a, b))
+    if glue_guides and content in ("PRINT", "ART_CUT", "BACK"):
+        for page_n, poly in glue_footprints(res, lay):
+            outer, pts_ = poly
+            show = (not outer) if mirror else (outer or glue_front)
+            if show and page_n < len(pages):
+                pages[page_n]["glue"].append(
+                    f'<polygon points="{" ".join(pt(q) for q in pts_)}"/>')
     clip_polys = page_clip_polygons(res, lay, bleed, tab_texture) if page_images else None
     docs = []
     for n, layers in enumerate(pages, 1):
@@ -364,6 +412,8 @@ def export_pages(
         groups = [
             ("tabs", f"fill:{_hex(tab_color)};stroke:none" if tab_fill else "fill:none;stroke:none"),
             ("faces", ""),
+            ("glue", f"fill:#000000;fill-opacity:0.06;stroke:#808080;"
+                     f"stroke-width:{_fmt(line_width)};stroke-dasharray:1,0.8"),
             ("mountain", lines["mountain"]),
             ("valley", lines["valley"]),
             ("cut", lines["cut"]),
@@ -378,7 +428,7 @@ def export_pages(
         if lines_only:
             keep = {"CUT": ("cut",), "CREASE": ("mountain", "valley"),
                     "LINES": ("mountain", "valley", "cut"),
-                    "BACK": ("cut", "groove", "bevel")}[content]
+                    "BACK": ("glue", "cut", "groove", "bevel")}[content]
             groups = [(name, style) for name, style in groups if name in keep]
         for name, style in groups:
             attr = f' style="{style}"' if style else ""
@@ -391,7 +441,7 @@ def export_pages(
             parts.append(
                 f'<text x="{_fmt(lay.margin)}" y="{_fmt(H - lay.margin / 3)}" '
                 f'style="font-family:sans-serif;font-size:2.5px;fill:#888888">'
-                f'{escape(title)} · page {n} BACK (mirrored) · blue: V-grooves '
+                f'{escape(title)} · page {n} BACK (mirrored) · grey: glue guides · blue: V-grooves '
                 f'(dashed = fold line) · orange: mitre, carve the back away to this line</text>'
             )
         if not lines_only:  # text would import into cutter software as shapes

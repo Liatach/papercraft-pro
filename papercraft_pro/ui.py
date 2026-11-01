@@ -251,6 +251,8 @@ def draw_export(layout, props):
             col.label(text="Cutters score each dash separately", icon="INFO")
         if props.export_content == "LINES":
             col.label(text="Creases are red, cuts black", icon="INFO")
+        if props.export_content == "BACK":
+            col.prop(props, "glue_guides")
         return
     col.prop(props, "texture_mode")
     if props.texture_mode == "BAKE":
@@ -266,6 +268,10 @@ def draw_export(layout, props):
         col.prop(props, "tab_fill")
     col.separator()
     col.prop(props, "number_mode")
+    col.prop(props, "glue_guides")
+    sub = col.column()
+    sub.active = props.glue_guides
+    sub.prop(props, "glue_guides_front")
     col.separator()
     col.prop(props, "line_style")
     if props.line_style == "CUSTOM":
@@ -277,6 +283,37 @@ def draw_export(layout, props):
     if not art_cut:
         sub.prop(props, "dashed_folds")
         sub.prop(props, "fold_min_angle")
+
+
+class PAPERCRAFT_PT_scene(_Child, bpy.types.Panel):
+    bl_label = "Scene & Render"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        from . import scene_setup as S
+
+        layout = self.layout
+        obj = T.target(context)
+        scene = context.scene
+        layout.operator("papercraft.setup_scene", icon="SCENE")
+        look = scene.get("papercraft_render_look")
+        names = {k: n for k, n, *_ in S.LOOKS}
+        row = layout.row(align=True)
+        row.operator_menu_enum("papercraft.render_look", "look",
+                               text=f"Render Look: {names.get(look, 'not set')}", icon="LIGHT_SUN")
+        row.operator("papercraft.frame_camera", text="", icon="VIEW_CAMERA")
+        col = layout.column(align=True)
+        col.label(text="Show in Renders")
+        row = col.row(align=True)
+        row.prop(obj, "hide_render", text="Model", invert_checkbox=True, toggle=True)
+        for role, label in ((T.ROLE_LAYOUT, "Layout"), (T.ROLE_FOLDING, "Fold Rig")):
+            out = T.output(obj, role)
+            sub = row.row(align=True)
+            if out is None:
+                sub.enabled = False
+                sub.label(text=label)
+            else:
+                sub.prop(out, "hide_render", text=label, invert_checkbox=True, toggle=True)
 
 
 class PAPERCRAFT_PT_export(_Child, bpy.types.Panel):
@@ -296,6 +333,7 @@ classes = (
     PAPERCRAFT_PT_material,
     PAPERCRAFT_PT_pieces,
     PAPERCRAFT_PT_animate,
+    PAPERCRAFT_PT_scene,
     PAPERCRAFT_PT_export,
 )
 

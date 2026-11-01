@@ -150,6 +150,39 @@ A *Join* made with Edit Cuts overrides a material/colour/sharp cut.
 The layout and folding meshes carry copies of all the model's UV maps and
 colour layers, so the model's materials preview correctly on the pages.
 
+### Glue guides
+
+**Glue Guides** (on by default) outline where each tab lands on the face it
+glues to. Inside tabs glue to the back of that face, so their guides print
+on the **Back Marks** pages, mirrored to line up when printed on the reverse
+of the sheet. Outside tabs glue on top, so their guides print on the front,
+hidden by the tab once it's glued. **Inside Guides on Front** puts every
+guide on the front: handy for plain models you paint after building (on
+printed art they would show on the finished model).
+
+### Scene & Render
+
+**Set Up Scene** (ported from Pop-Up Pro) gets the scene ready for renders
+in one go: Material Preview lit by Blender's dawn light, a sun for crisp
+shadows in the folds, faint fold lines, soft shading in the creases, and a
+camera framing the model (or the fold rig, or everything), close enough to
+fill the frame. **Render Look** sets how finished renders are lit:
+
+* *Clean*: even white light, no sun.
+* *Showcase*: white light and a sun's shadows, so every fold reads.
+* *Dawn*: Blender's sunrise light, warm and cool, with the sun's shadows.
+* *Studio*: a photo studio's light with real reflections.
+* *Your Own*: your own world and lights (put back as they were).
+
+Each look shows the camera a soft grey background, so white paper doesn't
+vanish against white. **Paper Texture** adds a fine paper grain, sized to
+the print scale, as a bump only, so colours and prints are untouched
+(materials with their own bump are left alone). **Show in Renders** turns
+the model, the layout and the fold rig on or off in renders. Materials that
+feed their colour straight into the output (some Paint System setups) glow
+evenly, so lights and shadows don't show on them: route the colour into a
+Principled BSDF's Base Color for shaded renders.
+
 ### Scale options
 
 * **Fit to Pages**: largest model that fits on N pages.
@@ -224,6 +257,7 @@ python tests/test_v09.py           # paper thickness, tabs clear their walls
 python tests/test_v10.py           # PDF export, trimmed baked pages
 python tests/test_v11.py           # pale-texture check and fix
 python tests/test_v12.py           # thick materials: grooves, mitres, creases
+python tests/test_v13.py           # scene setup, render looks, glue guides
 ```
 
 

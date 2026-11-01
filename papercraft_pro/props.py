@@ -207,9 +207,9 @@ class PapercraftSettings(bpy.types.PropertyGroup):
             ("CREASE", "Crease Lines Only", "Fold lines only, for scoring; file name ends _crease"),
             ("LINES", "Cut + Crease", "Both in one file, creases in red so they import as a "
              "separate colour layer; file name ends _lines"),
-            ("BACK", "Back Marks", "For thick board: the back of each sheet, mirrored so it "
-             "lines up when printed on the reverse or traced: outlines, V-grooves and mitre "
-             "bevels; file name ends _back"),
+            ("BACK", "Back Marks", "The back of each sheet, mirrored so it lines up when "
+             "printed on the reverse or traced: outlines, glue guides, and for thick board "
+             "V-grooves and mitre bevels; file name ends _back"),
         ],
         default="PRINT",
     )
@@ -266,6 +266,17 @@ class PapercraftSettings(bpy.types.PropertyGroup):
         description="Give the folding sheet real thickness in mm (e.g. 0.3 for card). "
         "Glue tabs then sit one thickness behind the wall they glue to (in front, for "
         "outside tabs) instead of showing through it. 0 = flat sheet (Rebuild Rig to apply)",
+    )
+    glue_guides: BoolProperty(
+        name="Glue Guides", default=True,
+        description="Outline where each tab lands on the face it glues to. Inside tabs "
+        "glue to the back of that face, so their guides print on Back Marks pages; "
+        "outside tabs' guides print on the front, under the tab",
+    )
+    glue_guides_front: BoolProperty(
+        name="Inside Guides on Front", default=False,
+        description="Print the inside tabs' guides on the front too: for plain models you "
+        "paint after building (on printed art they would show on the finished model)",
     )
     tab_fill: BoolProperty(
         name="Grey Tabs", default=True,
