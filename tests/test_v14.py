@@ -86,7 +86,7 @@ bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
 tex = nt.nodes.new("ShaderNodeTexImage")
 nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
 out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
-# A Paint System-like material: colour from a group straight to the output.
+# A layer-stack material: colour from a group straight to the output.
 ps = bpy.data.materials.new("layers")
 ps.use_nodes = True
 pnt = ps.node_tree

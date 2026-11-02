@@ -246,7 +246,7 @@ class PapercraftSettings(bpy.types.PropertyGroup):
         items=[
             ("BAKE", "Baked Material",
              "Bake what the material shows onto each page with Cycles: works with "
-             "layered/painted materials (e.g. Paint System), procedurals and vertex colours"),
+             "layered or node-group materials, procedurals and vertex colours"),
             ("IMAGE", "Image Textures", "Print image textures directly through the UVs (fast)"),
             ("COLOR", "Flat Colours", "Each piece in its material's base colour"),
             ("WHITE", "Lines Only", "No fill: white paper with lines (cutting machines)"),
@@ -257,7 +257,7 @@ class PapercraftSettings(bpy.types.PropertyGroup):
         name="Bake",
         items=[
             ("AUTO", "Auto", "Base colour; falls back to emission for materials that colour "
-             "through an emission path (e.g. Paint System), then to a full render"),
+             "through an emission shader, then to a full render"),
             ("BASE", "Base Colour", "The material's colour without lighting (usual for papercraft)"),
             ("EMIT", "Emission", "For materials that output colour through an Emission shader"),
             ("COMBINED", "Full Render", "Colour with the scene's lighting and shading "
@@ -294,7 +294,7 @@ class PapercraftSettings(bpy.types.PropertyGroup):
         name="True Colours While Painting", default=True,
         description="In Texture Paint, show the paint unlit with the Standard view "
         "transform, so the eyedropper picks the colour you painted (put back when you leave "
-        "Texture Paint). Layer stacks such as Paint System keep their own nodes",
+        "Texture Paint). Materials built from layer stacks keep their own nodes",
     )
     assembly_page: BoolProperty(
         name="Assembly Page", default=True,

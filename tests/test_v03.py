@@ -181,7 +181,7 @@ assert err < 1e-4
 bpy.ops.mesh.primitive_monkey_add(location=(-6, 0, 1))
 monkey = ctx.active_object
 activate(monkey)
-# Paint System style: own UV map from Smart UV Project, set active.
+# Layered paint style: own UV map from Smart UV Project, set active.
 uv = monkey.data.uv_layers.new(name="PS_UVMap")
 monkey.data.uv_layers.active = uv
 bpy.ops.object.mode_set(mode="EDIT")

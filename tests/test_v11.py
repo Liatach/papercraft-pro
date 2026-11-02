@@ -26,7 +26,7 @@ assert bake.textures_decode(ctx) is True
 assert bake.textures_decode(ctx, check_colorspace="Non-Color") is False
 print("decode check: working Cycles passes, an undecoded texture is caught")
 
-# Paint layer inside a node group (like Paint System).
+# Paint layer inside a node group (as layered paint setups do).
 bpy.ops.mesh.primitive_cube_add()
 cube = ctx.active_object
 want = (216, 128, 40)

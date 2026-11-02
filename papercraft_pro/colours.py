@@ -10,7 +10,7 @@ further. While you're in Texture Paint on a papercraft model this:
 * switches the scene's view transform to Standard,
 * shows the paint unlit: a material whose surface comes straight from a
   Principled BSDF is switched to its Base Color as emission (alpha kept);
-  materials drawn some other way (Paint System layer stacks, your own
+  materials drawn some other way (layer stacks, your own
   nodes) are left alone, as they would lose their layers, and
 * shows Solid-mode 3D views with flat texture colours,
 

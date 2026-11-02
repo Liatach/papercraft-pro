@@ -117,10 +117,10 @@ A *Join* made with Edit Cuts overrides a material/colour/sharp cut.
 
 * **Print: Baked Material** (default): Cycles bakes what the material shows
   onto each page, so anything prints: image textures on any UV map, layered
-  paint setups such as the very excellent [Paint System](https://extensions.blender.org/add-ons/paint-system/) add-on (its `PS_UVMap` and grouped
-  layers), procedurals and vertex colours. *Auto* (default) bakes the base
+  paint setups (layers in node groups, on their own UV maps), procedurals
+  and vertex colours. *Auto* (default) bakes the base
   colour and falls back to *Emission* for materials that colour through an
-  emission path (Paint System materials often do), or pick *Base Colour*,
+  emission path (layered paint setups often do), or pick *Base Colour*,
   *Emission* or *Full Render* yourself (scene lighting, matte: faces turned
   away from your lights print darker); *Bake DPI* defaults to 300. Baking
   runs on temporary copies of your materials, so they are never changed, and
@@ -199,15 +199,15 @@ fill the frame. **Render Look** sets how finished renders are lit:
 scene switches to the Standard view transform and paint fed straight from
 a Principled BSDF shows unlit, so the eyedropper picks the colour you
 painted, not a shaded or AgX-dulled one. Everything is put back when you
-leave Texture Paint; Paint System layer stacks keep their own nodes and
-just get the Standard view.
+leave Texture Paint; materials built from layer stacks keep their own
+nodes and just get the Standard view.
 
 Each look shows the camera a soft grey background, so white paper doesn't
 vanish against white. **Paper Texture** adds a fine paper grain, sized to
 the print scale, as a bump only, so colours and prints are untouched
 (materials with their own bump are left alone). **Show in Renders** turns
 the model, the layout and the fold rig on or off in renders. Materials that
-feed their colour straight into the output (some Paint System setups) glow
+feed their colour straight into the output (some layered paint setups) glow
 evenly, so lights and shadows don't show on them: route the colour into a
 Principled BSDF's Base Color for shaded renders.
 
@@ -324,6 +324,12 @@ python tests/test_v15.py           # flaps on open edges, page arrangements
   page size) straight into the summary, which is read-only today, instead
   of switching Scale mode first. The layout updates to match.
 * Drag pieces around the page.
+
+## Thanks
+
+Thanks to the [Paint System](https://extensions.blender.org/add-ons/paint-system/)
+add-on, whose layered materials shaped how baking handles painted models.
+Papercraft Pro doesn't need it or any other add-on.
 
 ## Licence
 Made by [Kim Lang](https://kim-lang.com/) [@Liatach](https://github.com/Liatach) with LLM assistance 2026

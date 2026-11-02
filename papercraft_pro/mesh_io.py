@@ -70,8 +70,8 @@ def _uv_of_image_node(node):
 
 def _upstream_image(node, depth=0, seen=None):
     """First Image Texture node feeding `node`, looking through mix nodes and
-    into node groups (layered setups such as Paint System keep their images
-    inside groups). Returns (image, uv_map_name_or_None)."""
+    into node groups (layered setups often keep their images inside
+    groups). Returns (image, uv_map_name_or_None)."""
     if node is None or depth > 24:
         return None
     if seen is None:

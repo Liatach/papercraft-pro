@@ -3,7 +3,7 @@
 
 For each page a temporary mesh is built from exactly the pieces on that
 page. It keeps the model's own UV maps and colour attributes (so layered or
-painted materials, e.g. Paint System, image textures, procedurals and vertex
+painted materials, image textures, procedurals and vertex
 colours all shade as they do on the model) plus one extra UV map that places
 every face where it sits on the page. Cycles bakes the material colour
 through that UV map into a page-sized image.
@@ -354,8 +354,8 @@ def bake_pages(context, src_obj, entry, dpi=200, bake_pass="AUTO", margin_mm=0.3
 
     The model's own materials are never modified: the bake runs on
     temporary copies (adding a bake target to a material and restoring its
-    selected node can switch its active Material Output, and paint add-ons
-    such as Paint System react to node changes)."""
+    selected node can switch its active Material Output, and some layered
+    setups react to node changes)."""
     scene = context.scene
     res, lay = entry.res, entry.lay
     width = max(16, round(lay.page_w / 25.4 * dpi))
