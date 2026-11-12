@@ -5,7 +5,7 @@ and pack everything onto a set of standard-size pages."""
 import math
 
 from . import geom as g
-from .unfold import KIND_BOUNDARY, KIND_CUT, KIND_FOLD, edge_key
+from .unfold import KIND_BOUNDARY, KIND_CUT, edge_key
 
 PAGE_SIZES_MM = {
     "A5": (148.0, 210.0),
@@ -868,11 +868,3 @@ def compute_layout(
         lay.messages.append(f"{squashed} tab(s) touch a neighbouring piece (red on the layout)")
     return lay
 
-
-def fold_kind(info):
-    """'mountain', 'valley' or 'flat' for a fold edge, seen from the printed side."""
-    if info.kind != KIND_FOLD:
-        return None
-    if abs(info.angle) < math.radians(0.5):
-        return "flat"
-    return "mountain" if info.angle > 0 else "valley"

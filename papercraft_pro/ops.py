@@ -11,14 +11,10 @@ from .core.svg import export_pages
 from .textures import textures_for
 
 
-def _target(context):
-    return T.target(context)
-
-
 class _NeedsModel:
     @classmethod
     def poll(cls, context):
-        return _target(context) is not None
+        return T.target(context) is not None
 
 
 class PAPERCRAFT_OT_unfold(_NeedsModel, bpy.types.Operator):
@@ -28,7 +24,7 @@ class PAPERCRAFT_OT_unfold(_NeedsModel, bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        obj = _target(context)
+        obj = T.target(context)
         obj.papercraft.role = T.ROLE_SOURCE
         entry = live.get_or_build(context, obj, force=True, full=True)
         if entry is None:
@@ -42,6 +38,33 @@ class PAPERCRAFT_OT_unfold(_NeedsModel, bpy.types.Operator):
         return {"FINISHED"}
 
 
+class PAPERCRAFT_OT_apply_cuts(_NeedsModel, bpy.types.Operator):
+    bl_idname = "papercraft.apply_cuts"
+    bl_label = "Apply Cuts"
+    bl_description = (
+        "Unfold again with the cuts and joins you have marked. Pieces you haven't "
+        "touched keep their shape where they can, and extra cuts are added only "
+        "where your own would leave pieces overlapping. (Unfold starts afresh instead)"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        obj = T.target(context)
+        obj.papercraft.role = T.ROLE_SOURCE
+        entry = live.get_or_build(context, obj, force=True, full=True, stable=True)
+        if entry is None:
+            self.report({"WARNING"}, obj.papercraft.info_message or "Nothing to unfold")
+            return {"CANCELLED"}
+        extra = live.auto_cuts(entry)
+        self.report(
+            {"INFO"},
+            f"{obj.name}: {len(entry.res.islands)} piece(s). "
+            + (f"{extra} further cut(s) chosen for you so the pieces lie flat" if extra
+               else "Your cuts were enough: none added"),
+        )
+        return {"FINISHED"}
+
+
 class PAPERCRAFT_OT_clear(_NeedsModel, bpy.types.Operator):
     bl_idname = "papercraft.clear"
     bl_label = "Remove Papercraft"
@@ -49,13 +72,14 @@ class PAPERCRAFT_OT_clear(_NeedsModel, bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        obj = _target(context)
+        obj = T.target(context)
         saved = build.ensure_object_mode(context)
         build.remove_rig(obj)
         build.remove_layout(obj)
         obj.papercraft.role = T.ROLE_NONE
         obj.papercraft.live = False
         obj.papercraft.info_islands = 0
+        obj.papercraft.info_pending = 0
         obj.papercraft.info_message = ""
         live.CACHE.pop(live._uid(obj), None)
         context.view_layer.objects.active = obj
@@ -73,7 +97,7 @@ class PAPERCRAFT_OT_frame_layout(_NeedsModel, bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        obj = _target(context)
+        obj = T.target(context)
         return (
             obj is not None
             and context.area is not None
@@ -82,7 +106,7 @@ class PAPERCRAFT_OT_frame_layout(_NeedsModel, bpy.types.Operator):
         )
 
     def execute(self, context):
-        src = _target(context)
+        src = T.target(context)
         lay = T.output(src, T.ROLE_LAYOUT)
         saved = build.ensure_object_mode(context)
         for o in context.selected_objects:
@@ -111,7 +135,7 @@ class PAPERCRAFT_OT_reset_layout(_NeedsModel, bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        obj = _target(context)
+        obj = T.target(context)
         entry = live.get_or_build(context, obj)
         if entry is not None:
             build.reset_layout_position(obj, entry)
@@ -128,7 +152,7 @@ class PAPERCRAFT_OT_build_rig(_NeedsModel, bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        obj = _target(context)
+        obj = T.target(context)
         entry = live.get_or_build(context, obj)
         if entry is None:
             return {"CANCELLED"}
@@ -145,11 +169,11 @@ class PAPERCRAFT_OT_remove_rig(_NeedsModel, bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        obj = _target(context)
+        obj = T.target(context)
         return obj is not None and T.output(obj, T.ROLE_RIG) is not None
 
     def execute(self, context):
-        obj = _target(context)
+        obj = T.target(context)
         saved = build.ensure_object_mode(context)
         build.remove_rig(obj)
         context.view_layer.objects.active = obj
@@ -169,7 +193,7 @@ class PAPERCRAFT_OT_animate(_NeedsModel, bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        obj = _target(context)
+        obj = T.target(context)
         return obj is not None and T.output(obj, T.ROLE_RIG) is not None
 
     def invoke(self, context, event):
@@ -177,7 +201,7 @@ class PAPERCRAFT_OT_animate(_NeedsModel, bpy.types.Operator):
         return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
-        arm = T.output(_target(context), T.ROLE_RIG)
+        arm = T.output(T.target(context), T.ROLE_RIG)
         fold_end = self.start + self.fold_frames
         end = fold_end + self.assemble_frames
         build.keyframe_animation(arm, self.start, fold_end, end)
@@ -187,7 +211,29 @@ class PAPERCRAFT_OT_animate(_NeedsModel, bpy.types.Operator):
         return {"FINISHED"}
 
 
-class PAPERCRAFT_OT_export_svg(_NeedsModel, bpy.types.Operator, ExportHelper):
+class _Export(_NeedsModel, ExportHelper):
+    """Shared by the SVG and PDF exports: settings in the file dialog, and a
+    file name suggested from the model."""
+
+    def draw(self, context):
+        from .ui import draw_export
+
+        obj = T.target(context)
+        if obj is not None:
+            draw_export(self.layout, obj.papercraft)
+
+    def invoke(self, context, event):
+        src = T.target(context)
+        if src is not None and not self.filepath:
+            blend_dir = (
+                os.path.dirname(bpy.data.filepath) if bpy.data.filepath else os.path.expanduser("~")
+            )
+            self.filepath = os.path.join(
+                blend_dir, bpy.path.clean_name(src.name) + self.filename_ext)
+        return super().invoke(context, event)
+
+
+class PAPERCRAFT_OT_export_svg(_Export, bpy.types.Operator):
     bl_idname = "papercraft.export_svg"
     bl_label = "Export SVG Pages"
     bl_description = "Write one SVG per page (print, or send to a cutting machine)"
@@ -195,37 +241,19 @@ class PAPERCRAFT_OT_export_svg(_NeedsModel, bpy.types.Operator, ExportHelper):
     filename_ext = ".svg"
     filter_glob: StringProperty(default="*.svg", options={"HIDDEN"})
 
-    def draw(self, context):
-        from .ui import draw_export
-
-        obj = _target(context)
-        if obj is not None:
-            draw_export(self.layout, obj.papercraft)
-
-    def invoke(self, context, event):
-        src = _target(context)
-        if src is not None and not self.filepath:
-            blend_dir = (
-                os.path.dirname(bpy.data.filepath) if bpy.data.filepath else os.path.expanduser("~")
-            )
-            self.filepath = os.path.join(blend_dir, f"{bpy.path.clean_name(src.name)}.svg")
-        return super().invoke(context, event)
-
     def execute(self, context):
-        obj = _target(context)
+        obj = T.target(context)
         entry = live.get_or_build(context, obj)
         if entry is None:
             return {"CANCELLED"}
-        props = obj.papercraft
         docs = write_pages(context, obj, entry, self.filepath, self)
         if docs is None:
             return {"CANCELLED"}
         self.report({"INFO"}, f"Wrote {len(docs)} page(s) to {os.path.dirname(self.filepath)}")
-        props.info_message = props.info_message  # keep UI in sync
         return {"FINISHED"}
 
 
-class PAPERCRAFT_OT_export_pdf(_NeedsModel, bpy.types.Operator, ExportHelper):
+class PAPERCRAFT_OT_export_pdf(_Export, bpy.types.Operator):
     bl_idname = "papercraft.export_pdf"
     bl_label = "Export PDF"
     bl_description = (
@@ -236,24 +264,8 @@ class PAPERCRAFT_OT_export_pdf(_NeedsModel, bpy.types.Operator, ExportHelper):
     filename_ext = ".pdf"
     filter_glob: StringProperty(default="*.pdf", options={"HIDDEN"})
 
-    def draw(self, context):
-        from .ui import draw_export
-
-        obj = _target(context)
-        if obj is not None:
-            draw_export(self.layout, obj.papercraft)
-
-    def invoke(self, context, event):
-        src = _target(context)
-        if src is not None and not self.filepath:
-            blend_dir = (
-                os.path.dirname(bpy.data.filepath) if bpy.data.filepath else os.path.expanduser("~")
-            )
-            self.filepath = os.path.join(blend_dir, f"{bpy.path.clean_name(src.name)}.pdf")
-        return super().invoke(context, event)
-
     def execute(self, context):
-        obj = _target(context)
+        obj = T.target(context)
         entry = live.get_or_build(context, obj)
         if entry is None:
             return {"CANCELLED"}
@@ -264,6 +276,15 @@ class PAPERCRAFT_OT_export_pdf(_NeedsModel, bpy.types.Operator, ExportHelper):
         return {"FINISHED"}
 
 
+def _with_suffix(obj, filepath, default_ext):
+    """(base, ext) with the content's suffix (_cut, _back ...) on the base."""
+    base, ext = os.path.splitext(filepath)
+    suffix = SUFFIX.get(obj.papercraft.export_content, "")
+    if suffix and not base.endswith(suffix):
+        base += suffix
+    return base, ext or default_ext
+
+
 def write_pdf(context, obj, entry, filepath, reporter=None):
     from .core.pdf import svgs_to_pdf
     from .textures import decode_data_uri
@@ -271,11 +292,8 @@ def write_pdf(context, obj, entry, filepath, reporter=None):
     docs = svg_documents(context, obj, entry, reporter)
     if docs is None:
         return None
-    base, ext = os.path.splitext(filepath)
-    suffix = SUFFIX.get(obj.papercraft.export_content, "")
-    if suffix and not base.endswith(suffix):
-        base += suffix
-    path = base + (ext or ".pdf")
+    base, ext = _with_suffix(obj, filepath, ".pdf")
+    path = base + ext
     with open(path, "wb") as fh:
         fh.write(svgs_to_pdf(docs, decode_data_uri, title=obj.name))
     return path
@@ -363,11 +381,8 @@ def write_pages(context, obj, entry, filepath, reporter=None):
     docs = svg_documents(context, obj, entry, reporter)
     if docs is None:
         return None
-    base, ext = os.path.splitext(filepath)
-    suffix = SUFFIX.get(obj.papercraft.export_content, "")
-    if suffix and not base.endswith(suffix):
-        base += suffix
-        filepath = base + ext
+    base, ext = _with_suffix(obj, filepath, ".svg")
+    filepath = base + ext
     from .core.assembly import MARK
 
     sheets = [d for d in docs if MARK not in d[:200]]
@@ -383,6 +398,7 @@ def write_pages(context, obj, entry, filepath, reporter=None):
 
 classes = (
     PAPERCRAFT_OT_unfold,
+    PAPERCRAFT_OT_apply_cuts,
     PAPERCRAFT_OT_clear,
     PAPERCRAFT_OT_frame_layout,
     PAPERCRAFT_OT_reset_layout,

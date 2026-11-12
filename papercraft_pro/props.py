@@ -30,15 +30,10 @@ def _board_chosen(self, context):
 
 
 def _changed(self, context):
-    from . import live
-
-    if self.live and self.role == "SOURCE":
-        live.schedule(self.id_data)
-
-
-def _layout_changed(self, context):
-    """Page and layout settings: re-pack the pieces already unfolded (no new
-    unfold), even with Live Update off, once the model has a layout."""
+    """A setting changed: update the layout once the model has one. With
+    Live Layout on that unfolds again if the cuts need it; with it off the
+    pieces are only re-packed, and anything that would move the cuts waits
+    for Apply Cuts (see live.regenerate, hold)."""
     from . import live
     from . import targets as T
 
@@ -79,7 +74,9 @@ class PapercraftSettings(bpy.types.PropertyGroup):
         name="Live Layout",
         default=False,
         update=_live_toggled,
-        description="Re-unfold automatically while you edit the model or mark seams",
+        description="Re-unfold automatically while you edit the model, mark seams or click "
+        "cuts. Off: your cuts and joins wait until you press Apply Cuts, and the pieces "
+        "stay as they are in the meantime",
     )
 
     # Unfolding --------------------------------------------------------
@@ -130,16 +127,16 @@ class PapercraftSettings(bpy.types.PropertyGroup):
     )
 
     # Paper --------------------------------------------------------------
-    paper: EnumProperty(name="Paper", items=PAPER_ITEMS, default="A4", update=_layout_changed)
-    landscape: BoolProperty(name="Landscape", default=False, update=_layout_changed)
-    custom_w: FloatProperty(name="Width", default=210.0, min=20.0, unit="NONE", update=_layout_changed)
-    custom_h: FloatProperty(name="Height", default=297.0, min=20.0, update=_layout_changed)
+    paper: EnumProperty(name="Paper", items=PAPER_ITEMS, default="A4", update=_changed)
+    landscape: BoolProperty(name="Landscape", default=False, update=_changed)
+    custom_w: FloatProperty(name="Width", default=210.0, min=20.0, unit="NONE", update=_changed)
+    custom_h: FloatProperty(name="Height", default=297.0, min=20.0, update=_changed)
     margin: FloatProperty(
-        name="Margin", default=10.0, min=0.0, max=60.0, update=_layout_changed,
+        name="Margin", default=10.0, min=0.0, max=60.0, update=_changed,
         description="Unprintable border in mm",
     )
     spacing: FloatProperty(
-        name="Spacing", default=3.0, min=0.0, max=30.0, update=_layout_changed,
+        name="Spacing", default=3.0, min=0.0, max=30.0, update=_changed,
         description="Gap between pieces in mm",
     )
     arrange: EnumProperty(
@@ -153,7 +150,7 @@ class PapercraftSettings(bpy.types.PropertyGroup):
              "side, in assembly order across the pages (piece letters follow it too)"),
         ],
         default="COMPACT",
-        update=_layout_changed,
+        update=_changed,
     )
 
     # Scale --------------------------------------------------------------
@@ -165,15 +162,15 @@ class PapercraftSettings(bpy.types.PropertyGroup):
             ("RATIO", "Fixed Ratio", "Millimetres of paper per Blender unit"),
         ],
         default="FIT",
-        update=_layout_changed,
+        update=_changed,
     )
-    pages: IntProperty(name="Pages", default=1, min=1, max=200, update=_layout_changed)
-    model_size_mm: FloatProperty(name="Size (mm)", default=150.0, min=5.0, update=_layout_changed)
-    ratio: FloatProperty(name="mm per Unit", default=100.0, min=0.001, update=_layout_changed)
+    pages: IntProperty(name="Pages", default=1, min=1, max=200, update=_changed)
+    model_size_mm: FloatProperty(name="Size (mm)", default=150.0, min=5.0, update=_changed)
+    ratio: FloatProperty(name="mm per Unit", default=100.0, min=0.001, update=_changed)
 
     # Tabs ---------------------------------------------------------------
-    tab_height: FloatProperty(name="Tab Height", default=5.0, min=0.5, max=30.0, update=_layout_changed)
-    tab_angle: FloatProperty(name="Tab Angle", default=45.0, min=15.0, max=89.0, update=_layout_changed)
+    tab_height: FloatProperty(name="Tab Height", default=5.0, min=0.5, max=30.0, update=_changed)
+    tab_angle: FloatProperty(name="Tab Angle", default=45.0, min=15.0, max=89.0, update=_changed)
 
     # Material -----------------------------------------------------------
     board: EnumProperty(
@@ -373,6 +370,7 @@ class PapercraftSettings(bpy.types.PropertyGroup):
     info_glue: IntProperty(default=0)
     info_message: StringProperty(default="")
     info_fits: BoolProperty(default=True)
+    info_pending: IntProperty(default=0)  # cut/join changes waiting for Apply Cuts
 
     def page_size(self):
         if self.paper == "CUSTOM":

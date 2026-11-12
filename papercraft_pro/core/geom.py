@@ -14,14 +14,6 @@ def sub3(a, b):
     return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
 
-def add3(a, b):
-    return (a[0] + b[0], a[1] + b[1], a[2] + b[2])
-
-
-def mul3(a, s):
-    return (a[0] * s, a[1] * s, a[2] * s)
-
-
 def dot3(a, b):
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 

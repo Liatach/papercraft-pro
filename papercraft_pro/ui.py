@@ -16,6 +16,18 @@ def _edit_cuts_button(layout, text="Edit Cuts"):
         layout.operator("papercraft.edit_cuts", text=text, icon="SCULPTMODE_HLT")
 
 
+def _apply_cuts_button(layout, obj):
+    """Big, and red while cuts, joins or cut settings are waiting for it."""
+    waiting = obj.papercraft.info_pending or (1 if live.needs_apply(obj) else 0)
+    row = layout.row()
+    row.scale_y = 1.6
+    row.alert = bool(waiting)
+    row.operator(
+        "papercraft.apply_cuts", icon="CHECKMARK",
+        text=f"Apply Cuts  ({waiting} waiting)" if waiting else "Apply Cuts",
+    )
+
+
 class _Base:
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
@@ -56,6 +68,9 @@ class PAPERCRAFT_PT_main(_Base, bpy.types.Panel):
         row = layout.row(align=True)
         row.operator("papercraft.frame_layout", icon="VIEW_ORTHO")
         _edit_cuts_button(row)
+        has_layout = props.role == T.ROLE_SOURCE and T.output(obj, T.ROLE_LAYOUT) is not None
+        if has_layout and not props.live:
+            _apply_cuts_button(layout, obj)
 
         if props.role == T.ROLE_SOURCE and props.info_islands:
             box = layout.box()
@@ -81,7 +96,7 @@ class PAPERCRAFT_PT_main(_Base, bpy.types.Panel):
             row.operator("mesh.mark_seam", text="Cut Here").clear = False
             row.operator("mesh.mark_seam", text="Join").clear = True
             if not props.live:
-                box.label(text="Turn on Live Layout to see changes", icon="INFO")
+                box.label(text="Apply Cuts to see changes", icon="INFO")
 
 
 class PAPERCRAFT_PT_cuts(_Child, bpy.types.Panel):
@@ -99,6 +114,8 @@ class PAPERCRAFT_PT_cuts(_Child, bpy.types.Panel):
         col = box.column(align=True)
         _edit_cuts_button(col, "Edit Cuts & Tabs")
         col.label(text="Click edge: cut / join")
+        if not props.live:
+            col.label(text="Cuts wait for Apply Cuts")
         col.label(text="Click tab: other side of seam")
         col.label(text="Shift+click tab: inside / outside")
         col.label(text="Click open edge: flap on / off")
@@ -202,19 +219,6 @@ class PAPERCRAFT_PT_animate(_Child, bpy.types.Panel):
         layout = self.layout
         obj = T.target(context)
         arm = T.output(obj, T.ROLE_RIG)
-        if arm is None:
-            props = obj.papercraft
-            col = layout.column()
-            col.use_property_split = True
-            col.use_property_decorate = False
-            col.prop(props, "fold_one_by_one")
-            sub = col.column()
-            sub.active = props.fold_one_by_one
-            sub.prop(props, "fold_overlap")
-            col.prop(props, "paper_thickness")
-            layout.operator("papercraft.build_rig", icon="ARMATURE_DATA")
-            return
-        entry = live.cached(obj)
         props = obj.papercraft
         col = layout.column()
         col.use_property_split = True
@@ -224,6 +228,10 @@ class PAPERCRAFT_PT_animate(_Child, bpy.types.Panel):
         sub.active = props.fold_one_by_one
         sub.prop(props, "fold_overlap")
         col.prop(props, "paper_thickness")
+        if arm is None:
+            layout.operator("papercraft.build_rig", icon="ARMATURE_DATA")
+            return
+        entry = live.cached(obj)
         if build.rig_is_stale(obj, entry):
             box = layout.box()
             box.alert = True

@@ -5,6 +5,10 @@ Hover an edge on the 3D model or on the paper layout: it lights up in both
 places. Click to cut a fold or join a cut; click a tab to move it to the
 other side of its seam; click an open edge (or Ctrl/Alt-click) to add or
 remove a flap for joining it to another part. Works across split viewports.
+
+With Live Layout off (the default) cut and join clicks only mark the edge:
+the pieces stay put, the marks show in their own colours, and Apply Cuts
+unfolds once with all of them. With Live Layout on every click unfolds.
 """
 
 import bpy
@@ -27,6 +31,11 @@ COLORS = {
     "open": (1.0, 0.8, 0.1, 1.0),  # hover: add / remove a flap on an open edge
     "flapped": (1.0, 0.8, 0.1, 0.8),  # open edges that have a flap
     "seam": (0.9, 0.1, 0.1, 0.9),  # existing cuts on the model
+    # Marked but waiting for Apply Cuts:
+    "pending_cut": (1.0, 0.25, 0.75, 1.0),
+    "pending_join": (0.2, 0.85, 0.3, 1.0),
+    "pending_free": (0.85, 0.85, 0.85, 1.0),
+    "revert": (0.85, 0.85, 0.85, 1.0),  # hover: take a waiting mark back
 }
 
 
@@ -91,10 +100,9 @@ def layout_segments(entry, key, lift=0.2):
     info = res.edges.get(key)
     if info is None or frame is None:
         return []
-    island_of = {}
-    for isl in res.islands:
-        for f in isl.faces:
-            island_of[f] = isl
+    island_of = getattr(res, "_island_of", None)
+    if island_of is None:  # built once per unfold, not on every mouse move
+        island_of = res._island_of = {f: isl for isl in res.islands for f in isl.faces}
     out = []
     for f, k in info.uses:
         isl = island_of.get(f)
@@ -115,6 +123,8 @@ def edge_action(entry, key):
         return "open"  # open boundary: add or remove a flap
     if len(info.uses) < 2:
         return None
+    if key in entry.revertable:
+        return "revert"  # marked, not applied yet: a click takes it back
     if key in entry.src.user_seams:
         return "join"
     return "cut" if info.kind == KIND_FOLD else "join"
@@ -188,13 +198,22 @@ def _int_attr(mesh, name):
     return attr
 
 
-def apply_pick(src_obj, p):
-    """Write the user's choice onto the source mesh. Returns True if changed."""
+def apply_pick(src_obj, p, entry=None):
+    """Write the user's choice onto the source mesh. Returns True if changed.
+    `entry` is needed for "revert" (it knows the marks last applied)."""
     mesh = src_obj.data
     ei = _edge_index(mesh, p.key)
     if ei is None:
         return False
-    if p.action == "flip":
+    if p.action == "revert":
+        if entry is None:
+            return False
+        res = entry.res
+        mesh.edges[ei].use_seam = p.key in getattr(res, "applied_user_seams", ())
+        joined = p.key in getattr(res, "applied_joins", ())
+        if joined or mesh.attributes.get(JOIN_ATTR) is not None:
+            _int_attr(mesh, JOIN_ATTR).data[ei].value = int(joined)
+    elif p.action == "flip":
         attr = _int_attr(mesh, FLIP_ATTR)
         attr.data[ei].value = 0 if attr.data[ei].value else 1
     elif p.action == "outer":
@@ -221,6 +240,18 @@ def model_cut_segments(entry):
     for key, info in entry.res.edges.items():
         if info.kind != KIND_FOLD and len(info.uses) == 2:
             out.append((Vector(verts[key[0]]), Vector(verts[key[1]])))
+    return out
+
+
+def pending_segments(entry):
+    """{kind: segments} for marks waiting for Apply Cuts, on the model and
+    on the layout."""
+    verts = entry.src.verts
+    out = {}
+    for key, kind in entry.pending.items():
+        segs = out.setdefault(kind, [])
+        segs.append((Vector(verts[key[0]]), Vector(verts[key[1]])))
+        segs.extend(layout_segments(entry, key))
     return out
 
 
@@ -268,6 +299,7 @@ def _draw(op):
     try:
         cut_segments, hover = op.cut_segments, op.hover
         flap_segments = getattr(op, "flap_segments", ())
+        pending = getattr(op, "pending_segments", {})
     except Exception:  # the tool ended without cleaning up: drop the overlay
         _remove_overlay()
         return
@@ -294,6 +326,8 @@ def _draw(op):
         lines(cut_segments, COLORS["seam"], 2.0)
         lines(flap_segments, COLORS["flapped"], 3.0)
         gpu.state.depth_test_set("NONE")
+        for kind, segs in pending.items():
+            lines(segs, COLORS["pending_" + kind], 4.0)
         if hover is not None:
             lines(hover.segments, COLORS[hover.action], 5.0)
     finally:
@@ -348,7 +382,8 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
         "Click edges on the model or the paper layout to cut or join them; "
         "click a tab to move it to the other side; Shift+click a tab to glue it "
         "on the outside (printed with the art it covers); click an open edge "
-        "(or Ctrl/Alt+click) to add or remove a flap for joining parts. Press "
+        "(or Ctrl/Alt+click) to add or remove a flap for joining parts. Cuts "
+        "and joins wait for Apply Cuts unless Live Layout is on. Press "
         "again, right-click or Esc to finish"
     )
     bl_options = {"REGISTER", "UNDO"}
@@ -373,7 +408,7 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
         build.ensure_object_mode(context)  # cuts are written in Object Mode
         context.view_layer.objects.active = src_obj
         src_obj.papercraft.role = T.ROLE_SOURCE
-        entry = live.get_or_build(context, src_obj)
+        entry = live.get_or_build(context, src_obj, hold=not src_obj.papercraft.live)
         if entry is None:
             return {"CANCELLED"}
         if not entry.src.topology_ok:
@@ -384,10 +419,8 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
             )
             return {"CANCELLED"}
         self.src_name = src_obj.name
-        self.entry = entry
         self.hover = None
-        self.cut_segments = model_cut_segments(entry)
-        self.flap_segments = model_flap_segments(entry)
+        self._take(entry)
         self.changes = 0
         _ACTIVE["op"] = self
         _ACTIVE["stop"] = False
@@ -397,9 +430,10 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
         _ACTIVE["workspace"] = context.workspace
         context.window_manager.modal_handler_add(self)
         context.workspace.status_text_set(
-            "Edit Cuts — click edge: cut / join  ·  click tab: other side of the seam  ·  "
-            "Shift+click tab: inside / outside  ·  click open edge (or Ctrl/Alt+click): "
-            "flap on / off  ·  Right-click / Esc / Done button: finish"
+            "Edit Cuts — click edge: cut / join (click a waiting edge to take it back)  ·  "
+            "click tab: other side of the seam  ·  Shift+click tab: inside / outside  ·  "
+            "click open edge (or Ctrl/Alt+click): flap on / off  ·  "
+            "Apply Cuts button: unfold with your cuts  ·  Right-click / Esc / Done: finish"
         )
         _redraw(context)
         return {"RUNNING_MODAL"}
@@ -407,6 +441,12 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
     @property
     def src_obj(self):
         return bpy.data.objects.get(self.src_name)
+
+    def _take(self, entry):
+        self.entry = entry
+        self.cut_segments = model_cut_segments(entry)
+        self.flap_segments = model_flap_segments(entry)
+        self.pending_segments = pending_segments(entry)
 
     def _finish(self, context):
         _remove_overlay()
@@ -419,19 +459,28 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
                 self.report({"INFO"}, "Fold rig rebuilt to match the new cuts")
             except Exception as exc:  # never leave the user stuck in the tool
                 self.report({"WARNING"}, f"Rig not rebuilt: {exc}")
+        waiting = src_obj.papercraft.info_pending if src_obj is not None else 0
+        if waiting:
+            self.report({"INFO"}, f"{waiting} cut change(s) waiting: press Apply Cuts")
         _redraw(context)
         return {"FINISHED"} if self.changes else {"CANCELLED"}
 
     def _refresh_entry(self, context):
-        """Undo/redo drop the cache: rebuild so picks match the mesh again."""
+        """Undo/redo drop the cache, and Apply Cuts replaces the entry: catch
+        up so picks match the mesh again."""
         src_obj = self.src_obj
-        if live.cached(src_obj) is self.entry:
+        entry = live.cached(src_obj)
+        if entry is self.entry:
             return
-        entry = live.cached(src_obj) or live.get_or_build(context, src_obj)
+        if entry is None:
+            hold = not src_obj.papercraft.live
+            if hold:
+                # Undo emptied the cache: keep the pieces we had, so cuts
+                # still waiting are not applied by the rebuild.
+                live.restore(src_obj, self.entry)
+            entry = live.get_or_build(context, src_obj, force=True, hold=hold)
         if entry is not None:
-            self.entry = entry
-            self.cut_segments = model_cut_segments(entry)
-            self.flap_segments = model_flap_segments(entry)
+            self._take(entry)
             self.hover = None
 
     def _update_hover(self, context, event):
@@ -490,14 +539,15 @@ class PAPERCRAFT_OT_edit_cuts(bpy.types.Operator):
             if event.value != "PRESS":
                 return {"RUNNING_MODAL"}
             self._update_hover(context, event)
-            if self.hover is not None and apply_pick(src_obj, self.hover):
+            if self.hover is not None and apply_pick(src_obj, self.hover, self.entry):
+                # Live Layout off: tabs and flaps update at once, cuts and
+                # joins are only marked and wait for Apply Cuts.
                 entry = live.regenerate(
-                    context.scene, context.evaluated_depsgraph_get(), src_obj, force=True
+                    context.scene, context.evaluated_depsgraph_get(), src_obj, force=True,
+                    hold=not src_obj.papercraft.live, stable=True,
                 )
                 if entry is not None:
-                    self.entry = entry
-                    self.cut_segments = model_cut_segments(entry)
-                    self.flap_segments = model_flap_segments(entry)
+                    self._take(entry)
                 self.changes += 1
                 bpy.ops.ed.undo_push(message="Papercraft: edit cut")
                 self._update_hover(context, event)

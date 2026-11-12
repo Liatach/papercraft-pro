@@ -195,7 +195,7 @@ def _triangulate(points):
 def unfold(
     verts, polygons, seams=(), materials=None, priority="auto", max_faces=0,
     planar_tolerance=0.002, joins=(), valley_bias=0.5, rescue_passes=5, tiny=3,
-    cut_valleys=None,
+    cut_valleys=None, keep=(),
 ):
     """Unfold with small-piece rescue.
 
@@ -203,6 +203,10 @@ def unfold(
     come late often finds its neighbours already grown and in the way, and
     ends up as a tiny separate piece. Each extra pass tries the edges of
     such faces first; the result with the fewest pieces wins.
+
+    keep: edge keys that were folds in an earlier unfold of this mesh. They
+    are tried straight after the user's joins, so pieces the user hasn't
+    touched keep their shape and only the changed areas are cut afresh.
 
     See _unfold_once for the other arguments. rescue_passes=0 disables it.
     """
@@ -214,7 +218,7 @@ def unfold(
         for p in ("long", "flat"):
             res = unfold(
                 verts, polygons, seams, materials, p, max_faces, planar_tolerance,
-                joins, valley_bias, rescue_passes, tiny, cut_valleys,
+                joins, valley_bias, rescue_passes, tiny, cut_valleys, keep,
             )
             res.score = len(res.islands) + 0.2 * tight_seams(res)
             res.priority = p
@@ -228,7 +232,7 @@ def unfold(
     for _ in range(max(0, rescue_passes) + 1):
         res = _unfold_once(
             verts, polygons, seams, materials, priority, max_faces,
-            planar_tolerance, user_joins, valley_bias, boost, cut_valleys,
+            planar_tolerance, user_joins, valley_bias, boost, cut_valleys, keep,
         )
         if best is None or len(res.islands) < len(best.islands):
             best = res
@@ -275,7 +279,7 @@ def tight_seams(res):
 def _unfold_once(
     verts, polygons, seams=(), materials=None, priority="long", max_faces=0,
     planar_tolerance=0.002, joins=(), valley_bias=0.5, boost=frozenset(),
-    cut_valleys=None,
+    cut_valleys=None, keep=(),
 ):
     """Unfold a mesh.
 
@@ -299,12 +303,15 @@ def _unfold_once(
     cut_valleys  angle in radians: valley (concave) edges sharper than this
                are always cut (thick board can't fold inwards neatly). A Join
                made with Edit Cuts still wins. None = off.
+    keep       edge keys to fold before any others except joins (the folds
+               of an earlier unfold, so untouched pieces keep their shape)
     """
     res = UnfoldResult()
     res.verts = list(verts)
     seam_keys = {edge_key(a, b) for a, b in seams}
     join_keys = {edge_key(a, b) for a, b in joins} - seam_keys
     boost_keys = set(boost) - seam_keys
+    keep_keys = set(keep) - seam_keys
 
     # Size-relative tolerances.
     if verts:
@@ -378,7 +385,8 @@ def _unfold_once(
             info.forced_cut = True
             continue
         length = g.len3(g.sub3(res.verts[aj], res.verts[ai]))
-        forced = 0 if key in join_keys else (1 if key in boost_keys else 2)
+        forced = (0 if key in join_keys else 1 if key in keep_keys
+                  else 2 if key in boost_keys else 3)
         is_valley = info.angle < -VALLEY_MIN
         if priority == "long":
             eff_len = length * (1.0 - 0.5 * valley_bias) if is_valley else length
@@ -403,7 +411,6 @@ def _unfold_once(
         if face is None:
             continue
         island_of[face.index] = Island(face.index, face.index, list(face.local))
-    weight_of = {key: w for w, key in candidates}
     candidates.sort()
 
     def try_join(key):
@@ -530,10 +537,3 @@ def _build_tree(res, isl):
             isl.order.append(c)
             queue.append(c)
 
-
-def face_corner_edges(res, face_index):
-    """Yield (corner, EdgeInfo) for a face."""
-    face = res.faces[face_index]
-    count = len(face.loop)
-    for k in range(count):
-        yield k, res.edges[edge_key(face.loop[k], face.loop[(k + 1) % count])]

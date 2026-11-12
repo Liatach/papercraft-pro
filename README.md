@@ -18,6 +18,9 @@ builds a hinge rig that animates the sheet folding up into the model.
 * **Edit Cuts**: hover and click edges on the model *or* the paper to cut and
   join, Pepakura style. Click tabs to swap sides; Shift+click for outside tabs.
   Click an open edge to add a flap, for joining big parts made separately.
+* **Apply Cuts**: mark as many cuts and joins as you like while the pieces
+  stay put, then apply them in one go. Pieces you didn't touch keep their
+  shape, and extra cuts are added only where yours leave pieces overlapping.
 * **Cut rules**: seams, material boundaries, painted colour regions, sharp edges.
 * **Live layout** on A4, Letter and other page sizes, updating as you edit.
 * **Prints what you see**: Cycles bakes any material (image textures, Paint
@@ -54,8 +57,9 @@ like; selecting a layout or rig jumps to its model.
    to Material Preview (Solid mode can't show textures, so pieces would look
    like blank grey shapes). Split the viewport
    (View → Area → Vertical Split) to see model and layout side by side.
-3. Turn on **Live Layout** and mark seams in Edit Mode (**Cut Here / Join**)
-   to control where the model is cut; the pages update as you work.
+3. Mark seams in Edit Mode (**Cut Here / Join**) to control where the model
+   is cut, then press **Apply Cuts**. Or turn on **Live Layout** (the round
+   arrows beside Unfold) and the pages update as you work.
 4. **Edit Cuts** (Pepakura style): hover an edge on the model *or* the
    paper layout and it lights up in both places; click to cut a fold or join
    a cut. Click a tab to move it to the other side of its seam;
@@ -65,6 +69,14 @@ like; selecting a layout or rig jumps to its model.
    split viewports. Finish with Right-click, Esc or the **Done Editing**
    button; clicks on the sidebar and other editors work normally meanwhile.
    Going into Edit Mode or hitting an error also ends the tool cleanly.
+   With Live Layout off, cut and join clicks only *mark* the edge (pink: will
+   be cut, green: will be joined; click a marked edge again to take it back)
+   and the pieces don't move, so the add-on isn't re-choosing its own cuts
+   while you work. The big **Apply Cuts** button turns red and counts what is
+   waiting; press it to unfold with your cuts. It keeps the pieces you didn't
+   touch and adds cuts of its own only where yours would leave pieces
+   overlapping, and tells you how many. **Unfold** starts afresh instead.
+   Tab and flap clicks always update straight away.
    **Open edges** (the rim of a part with nothing glued to it) take a
    **flap**: click one (Ctrl+click or Alt+click work too) to add or remove
    it; flapped edges show yellow on the model. If another open edge in the
@@ -229,7 +241,8 @@ How the pieces are spread over the pages (Paper & Scale → **Arrange**):
 
 Page, scale, tab and arrangement changes re-pack the pieces already
 unfolded (they keep their shapes), even with Live Layout off. Changing
-the cuts or **Cut For** unfolds again; **Unfold** always does.
+the cuts or **Cut For** unfolds again with Live Layout on, and waits for
+**Apply Cuts** with it off; **Unfold** always unfolds afresh.
 
 ### Materials
 
@@ -302,6 +315,8 @@ python tests/test_v12.py           # thick materials: grooves, mitres, creases
 python tests/test_v13.py           # scene setup, render looks, glue guides
 python tests/test_v14.py           # assembly page, piece letters, true colours
 python tests/test_v15.py           # flaps on open edges, page arrangements
+python tests/test_v16.py           # Apply Cuts: cuts wait, untouched pieces kept
+scripts/test.sh                    # all of the above
 ```
 
 

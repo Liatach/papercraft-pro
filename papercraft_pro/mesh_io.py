@@ -5,7 +5,6 @@ import hashlib
 import struct
 
 import bmesh
-import bpy
 
 JOIN_ATTR = "papercraft_join"  # INT on edges: user forced this edge to fold
 FLIP_ATTR = "papercraft_tab_flip"  # INT on edges: user flipped the tab side
@@ -18,7 +17,8 @@ class SourceData:
     __slots__ = (
         "verts", "polys", "seams", "joins", "flips", "outer", "open_tabs", "materials", "uvs",
         "colors",
-        "mat_list", "images", "signature", "cut_signature", "topology_ok", "rule_cuts",
+        "mat_list", "images", "signature", "cut_signature", "geom_signature", "topology_ok",
+        "rule_cuts",
         "face_colors",
         "user_seams", "uv_layers", "render_uv", "color_layers", "active_color",
         "image_uvs",
@@ -39,7 +39,8 @@ class SourceData:
         self.images = []  # per material slot: bpy Image or None
         self.face_colors = None
         self.signature = ""
-        self.cut_signature = ""
+        self.cut_signature = ""  # geometry + where the cuts and joins are marked
+        self.geom_signature = ""  # geometry only (same mesh, whatever is marked)
         self.topology_ok = True  # evaluated mesh matches the editable mesh
         self.rule_cuts = 0
         self.user_seams = set()  # normalised keys of edges marked as seams
@@ -303,6 +304,7 @@ def read_object(obj, depsgraph, rules=None):
     for p in data.polys:
         h.update(struct.pack(f"{len(p)}i", *p))
         h.update(b"|")
+    data.geom_signature = h.hexdigest() + str(hash(tuple(data.materials)))
     for group in (data.seams, data.joins):
         for s in group:
             h.update(struct.pack("2i", *s))
@@ -399,14 +401,3 @@ def _bm_face_colors(bm, name, domain, data_type):
         return None
     return None
 
-
-def ensure_collection(scene, name):
-    coll = bpy.data.collections.get(name)
-    if coll is None:
-        coll = bpy.data.collections.new(name)
-    if coll.name not in scene.collection.children:
-        try:
-            scene.collection.children.link(coll)
-        except RuntimeError:
-            pass
-    return coll
